@@ -409,7 +409,8 @@ export default function App() {
         genre: t.genre,
         url: (t as any).path || (t as any).url || `local-db://${t.id}`,
         imageUrl: t.imageUrl,
-        albumArtUrl: t.albumArtUrl || t.imageUrl || null
+        albumArtUrl: t.albumArtUrl || t.imageUrl || null,
+        file: t.blob ? new File([t.blob], t.name, { type: t.blob.type || "audio/mpeg" }) : undefined
       }));
       setFirestoreTracks(songs);
 
@@ -739,23 +740,7 @@ export default function App() {
   };   
 
   useEffect(() => {     
-    const sampleTracks: Track[] = [       
-      {         
-        id: "sample-sweep",         
-        name: "25Hz - 120Hz Fast Sub Sweep",         
-        artist: "DSP Cabin Acoustics",         
-        album: "Cabin Acoustics Calibrations",         
-        duration: 45,         
-        genre: "Frequency Sweep",         
-        file: new File([], "sub_sweep_acoustic.mp3"),
-        imageUrl: "https://images.unsplash.com/photo-1516280440614-37939bbacd6a?w=500&auto=format&fit=crop&q=80",
-        albumArtUrl: "https://images.unsplash.com/photo-1516280440614-37939bbacd6a?w=500&auto=format&fit=crop&q=80"
-      }     
-    ];     
-    setPlaylist((prevPlaylist) => {
-      const localTracks = prevPlaylist.filter(track => track.id.startsWith("local-"));
-      return [...sampleTracks, ...localTracks, ...firestoreTracks];
-    });
+    setPlaylist(firestoreTracks);
   }, [firestoreTracks]);   
 
   useEffect(() => {
@@ -1211,22 +1196,8 @@ export default function App() {
         setCurrentView("player");
         if (firstUploadedTrackId) {
           setLoadedTrackId(firstUploadedTrackId);
-          const sampleTracks: Track[] = [       
-            {         
-              id: "sample-sweep",         
-              name: "25Hz - 120Hz Fast Sub Sweep",         
-              artist: "DSP Cabin Acoustics",         
-              album: "Cabin Acoustics Calibrations",         
-              duration: 45,         
-              genre: "Frequency Sweep",         
-              file: new File([], "sub_sweep_acoustic.mp3"),
-              imageUrl: "https://images.unsplash.com/photo-1516280440614-37939bbacd6a?w=500&auto=format&fit=crop&q=80",
-              albumArtUrl: "https://images.unsplash.com/photo-1516280440614-37939bbacd6a?w=500&auto=format&fit=crop&q=80"
-            }     
-          ];
-          const fullPlaylist = [...sampleTracks, ...songs];
-          setPlaylist(fullPlaylist);
-          onPlayTrackById(firstUploadedTrackId, fullPlaylist);
+          setPlaylist(songs);
+          onPlayTrackById(firstUploadedTrackId, songs);
         }
       }
 

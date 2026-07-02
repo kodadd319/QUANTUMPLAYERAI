@@ -50,6 +50,50 @@ interface MyMusicViewProps {
   refreshLocalMedia?: () => Promise<{ songs: Track[]; vids: any[] }>;
 }
 
+// Helper to generate a 100% playable, valid WAV blob containing a 40Hz sub-bass tone for smooth audio engine loading
+function generatePlayableCalibrationWav(durationSec = 10): Blob {
+  const sampleRate = 8000;
+  const numChannels = 1;
+  const bitsPerSample = 8;
+  const numSamples = sampleRate * durationSec;
+  const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+  const blockAlign = numChannels * (bitsPerSample / 8);
+  const dataSize = numSamples * numChannels * (bitsPerSample / 8);
+  const chunkSize = 36 + dataSize;
+  
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+  
+  // "RIFF" chunk descriptor
+  view.setUint32(0, 0x52494646, false); // "RIFF"
+  view.setUint32(4, chunkSize, true);
+  view.setUint32(8, 0x57415645, false); // "WAVE"
+  
+  // "fmt " sub-chunk
+  view.setUint32(12, 0x666d7420, false); // "fmt "
+  view.setUint32(16, 16, true);          // Subchunk1Size (16 for PCM)
+  view.setUint16(20, 1, true);           // AudioFormat (1 for PCM)
+  view.setUint16(22, numChannels, true); // NumChannels
+  view.setUint32(24, sampleRate, true);  // SampleRate
+  view.setUint32(28, byteRate, true);    // ByteRate
+  view.setUint16(32, blockAlign, true);  // BlockAlign
+  view.setUint16(34, bitsPerSample, true); // BitsPerSample
+  
+  // "data" sub-chunk
+  view.setUint32(36, 0x64617461, false); // "data"
+  view.setUint32(40, dataSize, true);    // Subchunk2Size
+  
+  // Generate a clean 40Hz sine wave tone
+  const frequency = 40;
+  for (let i = 0; i < numSamples; i++) {
+    const t = i / sampleRate;
+    const sampleVal = Math.round(128 + 127 * Math.sin(2 * Math.PI * frequency * t));
+    view.setUint8(44 + i, sampleVal);
+  }
+  
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
 export const MyMusicView: React.FC<MyMusicViewProps> = ({
   playlist,
   currentTrackIndex,
@@ -134,220 +178,19 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
   const [scanResult, setScanResult] = useState<{ tracksCount: number; limitExceeded: boolean } | null>(null);
   const scanInputRef = useRef<HTMLInputElement>(null);
 
-  // Fully automated background Android ContentResolver MediaStore query
+  // Web-compatible HTML5 folder / local device storage scanner
   const handleSmartScan = async () => {
-    if (!currentUser) {
-      setUploadError("Please check authentication session or select a valid audio file.");
-      return;
-    }
-    
-    setIsScanning(true);
-    setScanProgress(0);
-    setScanResult(null);
     setUploadError("");
     setUploadSuccess("");
-
-    try {
-      // Step 1: Request Android Storage Permissions (Authentic Read Permissions)
-      setCurrentScanFile("Verifying READ_MEDIA_AUDIO local storage permissions...");
-      await new Promise((r) => setTimeout(r, 600));
-      const permitted = await requestNativeAndroidPermissions();
-      if (!permitted) {
-        throw new Error("Android storage permissions denied.");
-      }
-      setScanProgress(15);
-
-      // Step 2: Acquire Android ContentResolver Bridge
-      setCurrentScanFile("Acquiring Android ContentResolver bridge...");
-      await new Promise((r) => setTimeout(r, 500));
-      setScanProgress(30);
-
-      // Step 3: Query MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-      setCurrentScanFile("Querying MediaStore.Audio.Media.EXTERNAL_CONTENT_URI...");
-      await new Promise((r) => setTimeout(r, 600));
-      setScanProgress(45);
-
-      // Step 4: Execute query selecting music matching audio formats
-      setCurrentScanFile("Executing ContentResolver.query(uri, projection, 'IS_MUSIC != 0', null, null)...");
-      await new Promise((r) => setTimeout(r, 700));
-      setScanProgress(60);
-
-      // Fetch from direct native MediaStore ContentResolver
-      let nativeTracks: any[] = [];
-      const EXTERNAL_CONTENT_URI = "content://media/external/audio/media";
-      
-      const androidObj = (window as any).Android;
-      const androidBridgeObj = (window as any).AndroidBridge;
-      const contentResolverObj = (window as any).ContentResolver;
-      const capacitorObj = (window as any).Capacitor;
-
-      if (androidObj) {
-        if (typeof androidObj.queryMediaStore === "function") {
-          try {
-            const res = await androidObj.queryMediaStore(EXTERNAL_CONTENT_URI);
-            nativeTracks = typeof res === "string" ? JSON.parse(res) : res;
-          } catch (e) {
-            console.error("Android.queryMediaStore failed:", e);
-          }
-        } else if (typeof androidObj.getContentResolver === "function") {
-          try {
-            const res = await androidObj.getContentResolver(EXTERNAL_CONTENT_URI);
-            nativeTracks = typeof res === "string" ? JSON.parse(res) : res;
-          } catch (e) {
-            console.error("Android.getContentResolver failed:", e);
-          }
-        } else if (typeof androidObj.queryAudio === "function") {
-          try {
-            const res = await androidObj.queryAudio();
-            nativeTracks = typeof res === "string" ? JSON.parse(res) : res;
-          } catch (e) {
-            console.error("Android.queryAudio failed:", e);
-          }
-        }
-      } else if (androidBridgeObj && typeof androidBridgeObj.query === "function") {
-        try {
-          const res = await androidBridgeObj.query(EXTERNAL_CONTENT_URI);
-          nativeTracks = typeof res === "string" ? JSON.parse(res) : res;
-        } catch (e) {
-          console.error("AndroidBridge.query failed:", e);
-        }
-      } else if (contentResolverObj && typeof contentResolverObj.query === "function") {
-        try {
-          const res = await contentResolverObj.query(EXTERNAL_CONTENT_URI);
-          nativeTracks = typeof res === "string" ? JSON.parse(res) : res;
-        } catch (e) {
-          console.error("ContentResolver.query failed:", e);
-        }
-      } else if (capacitorObj && capacitorObj.Plugins) {
-        const { ContentResolver, AndroidMediaStoreScanner, MediaStoreScanner } = capacitorObj.Plugins;
-        const plugin = ContentResolver || AndroidMediaStoreScanner || MediaStoreScanner;
-        if (plugin && typeof plugin.query === "function") {
-          try {
-            const res = await plugin.query({
-              uri: EXTERNAL_CONTENT_URI,
-              projection: ["_id", "title", "artist", "_data", "duration", "album"]
-            });
-            nativeTracks = res.rows || res.tracks || res.data || [];
-          } catch (e) {
-            console.error("Capacitor ContentResolver plugin query failed:", e);
-          }
-        }
-      }
-
-      // If no native bridge or returned 0 results, enforce Rule 2:
-      if (!nativeTracks || nativeTracks.length === 0) {
-        throw new Error("No music files found on device");
-      }
-
-      const totalTracks = nativeTracks.length;
-      setCurrentScanFile(`Discovered ${totalTracks} system audio files. Binding cursors...`);
-      await new Promise((r) => setTimeout(r, 800));
-      setScanProgress(70);
-
-      // Step 5: Extract actual system columns in data binding loop (Rule 3)
-      let uploadedCount = 0;
-      for (let i = 0; i < totalTracks; i++) {
-        const rawTrack = nativeTracks[i];
-        
-        // Extract using exact system columns with full or simple keys
-        const title = rawTrack["MediaStore.Audio.Media.TITLE"] || rawTrack["TITLE"] || rawTrack["title"] || rawTrack["name"] || `Track #${i + 1}`;
-        const artist = rawTrack["MediaStore.Audio.Media.ARTIST"] || rawTrack["ARTIST"] || rawTrack["artist"] || "Unknown Artist";
-        const album = rawTrack["MediaStore.Audio.Media.ALBUM"] || rawTrack["ALBUM"] || rawTrack["album"] || "Unknown Album";
-        const duration = Number(rawTrack["MediaStore.Audio.Media.DURATION"] || rawTrack["DURATION"] || rawTrack["duration"] || 180);
-        
-        // Exact local path from _data, _id, or data columns (Rule 4)
-        const localPath = rawTrack["MediaStore.Audio.Media.DATA"] || rawTrack["_data"] || rawTrack["DATA"] || rawTrack["MediaStore.Audio.Media._ID"] || rawTrack["_id"] || rawTrack["_ID"] || "";
-        
-        setCurrentScanFile(`Binding: "${title}" - ${artist}...`);
-
-        if (!localPath) {
-          console.warn(`Skipping track "${title}" because no physical filepath column was found.`);
-          continue;
-        }
-
-        const trackId = `track_local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-        const localTrackRecord = {
-          id: trackId,
-          name: title,
-          artist: artist,
-          album: album,
-          genre: "Local MediaStore",
-          duration: duration,
-          imageUrl: "https://images.unsplash.com/photo-1545454675-3531b543be5d?w=500&auto=format&fit=crop&q=80",
-          albumArtUrl: "https://images.unsplash.com/photo-1545454675-3531b543be5d?w=500&auto=format&fit=crop&q=80",
-          createdAt: new Date().toISOString(),
-          path: localPath, // Enforce true absolute native URI path storage!
-          url: localPath,  // Direct url binding to local path
-          blob: new Blob(["scanned_native_track"], { type: "audio/mpeg" }) // Empty descriptor so IndexDB is happy
-        };
-
-        // Write directly to IndexedDB local storage
-        await storeLocalTrack(localTrackRecord);
-        uploadedCount++;
-
-        // Stagger progress bar
-        const stepProgress = 70 + Math.round((uploadedCount / totalTracks) * 30);
-        setScanProgress(stepProgress);
-        await new Promise((r) => setTimeout(r, 100));
-      }
-
-      // Step 6: Refresh parent application state instantly
-      if (refreshLocalMedia) {
-        await refreshLocalMedia();
-      }
-
-      setScanResult({
-        tracksCount: uploadedCount,
-        limitExceeded: false
-      });
-
-      setUploadSuccess(`Zero-Click Media Scan Complete! ${uploadedCount} high-fidelity tracks ingested directly from your physical MediaStore.`);
-
-    } catch (err: any) {
-      console.error("Automated background media scan failed:", err);
-      setUploadError(err.message || "An error occurred during background media scanning.");
-    } finally {
-      setIsScanning(false);
-      setCurrentScanFile(null);
+    if (scanInputRef.current) {
+      scanInputRef.current.click();
+    } else {
+      const el = document.getElementById("music-scanner");
+      if (el) el.click();
     }
   };
 
-  const executeLibraryIngestion = async (files: File[]) => {
-    try {
-      setIsScanning(true);
-      const res = await ingestAudioLibrary(
-        files,
-        currentUser.uid,
-        currentUser.email,
-        (fileName, progress) => {
-          setCurrentScanFile(fileName);
-          setScanProgress(progress);
-        }
-      );
-
-      setScanResult({
-        tracksCount: res.uploadedCount,
-        limitExceeded: res.limitExceeded
-      });
-
-      if (res.uploadedCount > 0) {
-        setUploadSuccess(`Smart scanner successfully ingested ${res.uploadedCount} tracks into your cloud library!`);
-      } else if (res.limitExceeded) {
-        setUploadError("Ingestion partially capped: You have reached the maximum 10-track limit for the Free Tier. Please upgrade to enjoy unlimited high-fidelity uploads!");
-      } else {
-        setUploadError("No new tracks were ingested.");
-      }
-
-    } catch (err: any) {
-      console.error("Ingestion execution error:", err);
-      setUploadError("File ingestion process encountered a secure service exception.");
-    } finally {
-      setIsScanning(false);
-      setCurrentScanFile(null);
-    }
-  };
-
-  const handleScanInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleWebFolderScanChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) {
       setIsScanning(false);
       setCurrentScanFile(null);
@@ -359,7 +202,109 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
       setCurrentScanFile(null);
       return;
     }
-    executeLibraryIngestion(files);
+
+    setIsScanning(true);
+    setScanProgress(0);
+    setScanResult(null);
+    setUploadError("");
+    setUploadSuccess("");
+
+    try {
+      setCurrentScanFile("Initializing local device file structure query...");
+      await new Promise((r) => setTimeout(r, 400));
+
+      // Automated File Filtering Loop: Accept all local audio extensions (case-insensitive)
+      const allowedExtensions = [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"];
+      const filteredFiles = files.filter(file => {
+        const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+        return allowedExtensions.includes(ext);
+      });
+
+      if (filteredFiles.length === 0) {
+        throw new Error("No valid local audio files found matching extensions (.mp3, .wav, .m4a, .aac, .ogg, .flac).");
+      }
+
+      const totalTracks = filteredFiles.length;
+      setCurrentScanFile(`Discovered ${totalTracks} compatible tracks. Parsing local metadata...`);
+      await new Promise((r) => setTimeout(r, 600));
+
+      let processedCount = 0;
+      for (const file of filteredFiles) {
+        // Extract filename, strip extension off for a clean look
+        const title = file.name.replace(/\.[^/.]+$/, "");
+        
+        // Parse folder path to construct artist/album hierarchy dynamically if relative path exists
+        const relativePath = (file as any).webkitRelativePath || "";
+        const parts = relativePath ? relativePath.split("/") : [];
+        let artist = "Local Storage";
+        let album = "Local Device";
+        if (parts.length >= 3) {
+          artist = parts[parts.length - 3];
+          album = parts[parts.length - 2];
+        } else if (parts.length === 2) {
+          album = parts[0];
+        }
+
+        // Determine genre based on simple title scanning matching standard player categories
+        let genre = "Local Media";
+        const fileLower = file.name.toLowerCase();
+        if (fileLower.includes("rap") || fileLower.includes("hip") || fileLower.includes("beat")) {
+          genre = "Hip Hop / Rap";
+        } else if (fileLower.includes("rock") || fileLower.includes("metal") || fileLower.includes("guitar")) {
+          genre = "Rock / Metal";
+        } else if (fileLower.includes("electro") || fileLower.includes("edm") || fileLower.includes("house") || fileLower.includes("dance")) {
+          genre = "EDM / Electronic";
+        } else if (fileLower.includes("pop") || fileLower.includes("rnb") || fileLower.includes("vocal")) {
+          genre = "Pop Vocal";
+        }
+
+        setCurrentScanFile(`Processing: ${file.name}`);
+
+        const trackId = `track_local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+        // Build localized record maintaining reference to original File object
+        const localTrackRecord = {
+          id: trackId,
+          name: title,
+          artist: artist,
+          album: album,
+          duration: 180, // Default fallback. Will be resolved to true duration dynamically on load!
+          genre: genre,
+          imageUrl: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80",
+          albumArtUrl: null,
+          createdAt: new Date().toISOString(),
+          url: `local-db://${trackId}`, // Standard URL protocol to trigger offline blob load
+          blob: file // Store raw file object inside IndexedDB directly!
+        };
+
+        // Write directly to IndexedDB local storage (bypass cloud, 100% local)
+        await storeLocalTrack(localTrackRecord);
+        processedCount++;
+
+        // Stagger progress animation for tactile feedback
+        setScanProgress(Math.round((processedCount / totalTracks) * 100));
+        await new Promise((r) => setTimeout(r, 30));
+      }
+
+      // Sync and populate parent application state instantly
+      if (refreshLocalMedia) {
+        await refreshLocalMedia();
+      }
+
+      setScanResult({
+        tracksCount: processedCount,
+        limitExceeded: false
+      });
+
+      setUploadSuccess(`Scan Complete! Discovered and synchronized ${processedCount} high-fidelity local tracks to your offline library.`);
+
+    } catch (err: any) {
+      console.error("Local audio scanner failed:", err);
+      setUploadError(err.message || "An error occurred while scanning your device storage.");
+    } finally {
+      setIsScanning(false);
+      setCurrentScanFile(null);
+    }
   };
 
   // 1. Filter out sample/built-in tracks to get user uploaded music
@@ -587,13 +532,15 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
 
       </div>
 
-      {/* Hidden fallback scanner input for manual scan file feeds */}
+      {/* HTML5 Local Storage Input Element configured exactly as requested */}
       <input 
         type="file"
+        id="music-scanner"
         ref={scanInputRef}
         accept="audio/*"
         multiple
-        onChange={handleScanInputChange}
+        {...{ webkitdirectory: "", directory: "" }}
+        onChange={handleWebFolderScanChange}
         className="hidden"
       />
 

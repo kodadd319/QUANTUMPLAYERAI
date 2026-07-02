@@ -159,11 +159,30 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
   const [isScanning, setIsScanning] = useState(false);
   const [currentScanFile, setCurrentScanFile] = useState<string | null>(null);
   const [scanProgress, setScanProgress] = useState<number>(0);
+  const videoScanInputRef = useRef<HTMLInputElement>(null);
 
-  // Fully automated zero-click Android ContentResolver MediaStore video scanner simulation
+  // Web-compatible HTML5 folder / local device storage scanner for videos
   const handleSmartScan = async () => {
-    if (!currentUser) {
-      setUploadError("Please check authentication session or log in to scan media directories.");
+    setUploadError("");
+    setUploadSuccess("");
+    if (videoScanInputRef.current) {
+      videoScanInputRef.current.click();
+    } else {
+      const el = document.getElementById("video-scanner");
+      if (el) el.click();
+    }
+  };
+
+  const handleWebFolderScanChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) {
+      setIsScanning(false);
+      setCurrentScanFile(null);
+      return;
+    }
+    const files = Array.from(e.target.files) as File[];
+    if (files.length === 0) {
+      setIsScanning(false);
+      setCurrentScanFile(null);
       return;
     }
 
@@ -173,85 +192,89 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
     setUploadSuccess("");
 
     try {
-      // Step 1: Request Android Storage Permissions (READ_MEDIA_VIDEO)
-      setCurrentScanFile("Verifying READ_MEDIA_VIDEO local storage permissions...");
-      await new Promise((r) => setTimeout(r, 600));
-      const permitted = await requestNativeAndroidPermissions();
-      if (!permitted) {
-        throw new Error("Android storage permissions denied.");
+      setCurrentScanFile("Initializing local device video structure query...");
+      await new Promise((r) => setTimeout(r, 400));
+
+      // Automated File Filtering Loop: Accept all local video extensions (case-insensitive)
+      const allowedExtensions = [".mp4", ".webm", ".avi", ".mkv", ".mov", ".3gp", ".m4v"];
+      const filteredFiles = files.filter(file => {
+        const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+        return allowedExtensions.includes(ext);
+      });
+
+      if (filteredFiles.length === 0) {
+        throw new Error("No valid local video files found matching extensions (.mp4, .webm, .avi, .mkv, .mov, .3gp, .m4v).");
       }
-      setScanProgress(15);
 
-      // Step 2: Acquire Android ContentResolver Bridge
-      setCurrentScanFile("Acquiring Android ContentResolver bridge...");
-      await new Promise((r) => setTimeout(r, 500));
-      setScanProgress(30);
-
-      // Step 3: Query MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-      setCurrentScanFile("Querying MediaStore.Video.Media.EXTERNAL_CONTENT_URI...");
+      const totalVideos = filteredFiles.length;
+      setCurrentScanFile(`Discovered ${totalVideos} compatible video tracks. Parsing local metadata...`);
       await new Promise((r) => setTimeout(r, 600));
-      setScanProgress(45);
 
-      // Step 4: Execute query indexing video records
-      setCurrentScanFile("Executing ContentResolver.query(uri, projection, 'IS_VIDEO != 0', null, null)...");
-      await new Promise((r) => setTimeout(r, 700));
-      setScanProgress(60);
-
-      const totalVideos = MEDIASTORE_VIDEO_RECORDS.length;
-      setCurrentScanFile(`Found ${totalVideos} compatible video files in local directory indexing records!`);
-      await new Promise((r) => setTimeout(r, 800));
-      setScanProgress(70);
-
-      // Step 5: Read video descriptors, download small samples as Blobs, and save directly to IndexedDB
-      let uploadedCount = 0;
-      for (let i = 0; i < totalVideos; i++) {
-        const record = MEDIASTORE_VIDEO_RECORDS[i];
-        setCurrentScanFile(`Indexing video descriptor: "${record.title}"...`);
-
-        let videoBlob: Blob;
-        try {
-          // Attempt to fetch the video file over HTTP to store it as a real playable offline asset
-          const res = await fetch(record.url);
-          if (!res.ok) throw new Error("HTTP Fetch Error");
-          videoBlob = await res.blob();
-        } catch (err) {
-          console.warn(`HTTP video fetch failed for "${record.title}". Generating fallback dummy binary descriptor...`, err);
-          // Fallback dummy blob so compilation remains 100% offline-ready and fail-proof
-          videoBlob = new Blob(["mock_mp4_binary_descriptor"], { type: "video/mp4" });
+      let processedCount = 0;
+      for (const file of filteredFiles) {
+        // Extract filename, strip extension off for a clean look
+        const title = file.name.replace(/\.[^/.]+$/, "");
+        
+        // Parse folder path to construct creator/category hierarchy dynamically if relative path exists
+        const relativePath = (file as any).webkitRelativePath || "";
+        const parts = relativePath ? relativePath.split("/") : [];
+        let creator = "Local Storage";
+        let category = "Local Device";
+        if (parts.length >= 3) {
+          creator = parts[parts.length - 3];
+          category = parts[parts.length - 2];
+        } else if (parts.length === 2) {
+          category = parts[0];
         }
 
+        // Random dynamic thumb placeholders from high-quality curated stock images based on name tags or folder
+        let thumbnail = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80";
+        const lowerName = file.name.toLowerCase();
+        if (lowerName.includes("car") || lowerName.includes("drive") || lowerName.includes("speed")) {
+          thumbnail = "https://images.unsplash.com/photo-1518173946687-a4c8a383392e?w=500&auto=format&fit=crop&q=80";
+        } else if (lowerName.includes("bass") || lowerName.includes("audio") || lowerName.includes("sound")) {
+          thumbnail = "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=500&auto=format&fit=crop&q=80";
+        } else if (lowerName.includes("neon") || lowerName.includes("laser") || lowerName.includes("cyber")) {
+          thumbnail = "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=500&auto=format&fit=crop&q=80";
+        } else if (lowerName.includes("ocean") || lowerName.includes("sea") || lowerName.includes("water")) {
+          thumbnail = "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&auto=format&fit=crop&q=80";
+        }
+
+        setCurrentScanFile(`Processing: ${file.name}`);
+
         const videoId = `video_local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+        // Build localized record maintaining reference to original File object
         const localVideoRecord = {
           id: videoId,
-          name: record.title,
-          creator: record.creator,
-          category: record.category,
-          duration: record.duration,
-          thumbnail: record.thumbnail,
+          name: title,
+          creator: creator,
+          category: category,
+          duration: "0:30", // Placeholder. Resolved dynamically on player load
+          thumbnail: thumbnail,
           createdAt: new Date().toISOString(),
-          blob: videoBlob
+          blob: file // Store raw file object inside IndexedDB directly!
         };
 
-        // Write directly to IndexedDB local storage
+        // Write directly to IndexedDB local storage (bypass cloud, 100% local)
         await storeLocalVideo(localVideoRecord);
-        uploadedCount++;
+        processedCount++;
 
         // Stagger scanning progress meter
-        const stepProgress = 70 + Math.round((uploadedCount / totalVideos) * 30);
-        setScanProgress(stepProgress);
-        await new Promise((r) => setTimeout(r, 250));
+        setScanProgress(Math.round((processedCount / totalVideos) * 100));
+        await new Promise((r) => setTimeout(r, 30));
       }
 
-      // Step 6: Instantly reload parent state
+      // Sync and populate parent application state instantly
       if (refreshLocalMedia) {
         await refreshLocalMedia();
       }
 
-      setUploadSuccess(`Zero-Click Video Scan Complete! ${uploadedCount} video files discovered and mapped to local memory storage.`);
+      setUploadSuccess(`Scan Complete! Discovered and synchronized ${processedCount} high-fidelity local videos to your offline library.`);
 
     } catch (err: any) {
-      console.error("Automated background video media scan failed:", err);
-      setUploadError(err.message || "An error occurred during local background video scanning.");
+      console.error("Local video scanner failed:", err);
+      setUploadError(err.message || "An error occurred while scanning your device storage.");
     } finally {
       setIsScanning(false);
       setCurrentScanFile(null);
@@ -884,6 +907,18 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* HTML5 Local Storage Input Element configured exactly as requested */}
+      <input 
+        type="file"
+        id="video-scanner"
+        ref={videoScanInputRef}
+        accept="video/*"
+        multiple
+        {...{ webkitdirectory: "", directory: "" }}
+        onChange={handleWebFolderScanChange}
+        className="hidden"
+      />
     </motion.div>
   );
 };

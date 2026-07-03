@@ -19,7 +19,8 @@ import {
   HardDrive,
   Info,
   PlusCircle,
-  ArrowUpDown
+  ArrowUpDown,
+  Calendar
 } from "lucide-react";
 import { Track } from "../types";
 import { motion, AnimatePresence } from "motion/react";
@@ -27,9 +28,11 @@ import {
   isNativePlatform,
   requestNativeAndroidPermissions,
   scanNativeStorageForAudio,
-  ingestAudioLibrary
+  ingestAudioLibrary,
+  extractMetadata
 } from "../utils/audioScannerService";
 import { storeLocalTrack } from "../utils/localMediaStorage";
+import { getAlbumArtForTrack } from "../utils/albumArt";
 
 // MediaStore mock records removed. Direct ContentResolver integration active.
 
@@ -110,35 +113,49 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
   setUploadSuccess,
   refreshLocalMedia
 }) => {
-  const [viewCategory, setViewCategory] = useState<"all" | "artist" | "album" | "genre">("all");
+  const [viewCategory, setViewCategory] = useState<"all" | "artist" | "album" | "releaseDate" | "genre">("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortBy, setSortBy] = useState<"dateAdded" | "artist" | "title">("dateAdded");
+  const [sortBy, setSortBy] = useState<"dateAdded" | "artist" | "title">("title");
   const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // Long press timer refs & selection mode triggers
   const longPressTimers = useRef<Record<string, any>>({});
   const isLongPressing = useRef<Record<string, boolean>>({});
+  const touchStartPos = useRef<Record<string, { x: number; y: number }>>({});
+  const hasMoved = useRef<Record<string, boolean>>({});
 
   const startLongPress = (id: string, e: React.MouseEvent | React.TouchEvent) => {
     if (longPressTimers.current[id]) {
       clearTimeout(longPressTimers.current[id]);
     }
     isLongPressing.current[id] = false;
+    hasMoved.current[id] = false;
+
+    if (e && "touches" in e && e.touches && e.touches[0]) {
+      touchStartPos.current[id] = {
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY
+      };
+    }
 
     longPressTimers.current[id] = setTimeout(() => {
-      isLongPressing.current[id] = true;
-      if (navigator.vibrate) {
-        navigator.vibrate(60);
-      }
-      setIsSelectionMode(true);
-      setSelectedTrackIds(prev => {
-        if (!prev.includes(id)) {
-          return [...prev, id];
+      // Only trigger long press if the finger has not moved substantially
+      if (!hasMoved.current[id]) {
+        isLongPressing.current[id] = true;
+        if (navigator.vibrate) {
+          navigator.vibrate(60);
         }
-        return prev;
-      });
+        setIsSelectionMode(true);
+        setSelectedTrackIds(prev => {
+          if (!prev.includes(id)) {
+            return [...prev, id];
+          }
+          return prev;
+        });
+      }
     }, 600);
   };
 
@@ -149,15 +166,31 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
     }
   };
 
+  const handleTouchMove = (id: string, e: React.TouchEvent) => {
+    if (!touchStartPos.current[id]) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+
+    const dx = Math.abs(touch.clientX - touchStartPos.current[id].x);
+    const dy = Math.abs(touch.clientY - touchStartPos.current[id].y);
+
+    // If movement exceeds 8 pixels, treat it as a scroll/drag action, not a click/long-press
+    if (dx > 8 || dy > 8) {
+      hasMoved.current[id] = true;
+      cancelLongPress(id);
+    }
+  };
+
   const endLongPress = (id: string, action: () => void) => {
     if (longPressTimers.current[id]) {
       clearTimeout(longPressTimers.current[id]);
       delete longPressTimers.current[id];
     }
-    if (!isLongPressing.current[id]) {
+    if (!isLongPressing.current[id] && !hasMoved.current[id]) {
       action();
     }
     isLongPressing.current[id] = false;
+    hasMoved.current[id] = false;
   };
 
   const bindLongPress = (id: string, action: () => void) => {
@@ -167,7 +200,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
       onMouseLeave: () => cancelLongPress(id),
       onTouchStart: (e: React.TouchEvent) => startLongPress(id, e),
       onTouchEnd: () => endLongPress(id, action),
-      onTouchMove: () => cancelLongPress(id),
+      onTouchMove: (e: React.TouchEvent) => handleTouchMove(id, e),
     };
   };
 
@@ -260,18 +293,25 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
 
         setCurrentScanFile(`Processing: ${file.name}`);
 
+        let metadata;
+        try {
+          metadata = await extractMetadata(file);
+        } catch (e) {
+          metadata = { title: title, artist: artist, album: album, imageUrl: "", albumArtUrl: null };
+        }
+
         const trackId = `track_local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
         // Build localized record maintaining reference to original File object
         const localTrackRecord = {
           id: trackId,
-          name: title,
-          artist: artist,
-          album: album,
+          name: metadata.title || title,
+          artist: metadata.artist && metadata.artist !== "Unknown Artist" ? metadata.artist : artist,
+          album: metadata.album && metadata.album !== "Unknown Album" ? metadata.album : album,
           duration: 180, // Default fallback. Will be resolved to true duration dynamically on load!
           genre: genre,
-          imageUrl: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80",
-          albumArtUrl: null,
+          imageUrl: metadata.imageUrl || "",
+          albumArtUrl: metadata.albumArtUrl || null,
           createdAt: new Date().toISOString(),
           url: `local-db://${trackId}`, // Standard URL protocol to trigger offline blob load
           blob: file // Store raw file object inside IndexedDB directly!
@@ -385,6 +425,26 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
     return groups;
   }, [filteredTracks]);
 
+  const tracksByReleaseDate = useMemo(() => {
+    const groups: Record<string, Track[]> = {};
+    filteredTracks.forEach(track => {
+      let dateKey = "Unknown Release Date";
+      if ((track as any).createdAt) {
+        try {
+          const d = new Date((track as any).createdAt);
+          if (!isNaN(d.getTime())) {
+            dateKey = d.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+          }
+        } catch (e) {
+          console.error("Error parsing createdAt for release date grouping:", e);
+        }
+      }
+      if (!groups[dateKey]) groups[dateKey] = [];
+      groups[dateKey].push(track);
+    });
+    return groups;
+  }, [filteredTracks]);
+
   // Selection state helpers
   const toggleSelectTrack = (trackId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -411,14 +471,17 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
     }
   };
 
-  const handleBatchDelete = async () => {
+  const handleBatchDelete = () => {
     if (selectedTrackIds.length === 0) return;
-    if (confirm(`Do you wish to remove the selected ${selectedTrackIds.length} track(s) from your music library?`)) {
-      const idsToDelete = [...selectedTrackIds];
-      setSelectedTrackIds([]);
-      setIsSelectionMode(false);
-      await deleteSelectedTracks(idsToDelete);
-    }
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = async () => {
+    const idsToDelete = [...selectedTrackIds];
+    setSelectedTrackIds([]);
+    setIsSelectionMode(false);
+    setShowDeleteConfirm(false);
+    await deleteSelectedTracks(idsToDelete);
   };
 
   const toggleGroup = (groupName: string) => {
@@ -459,11 +522,11 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6" id="media-scanner-station">
         
         {/* Interactive scanner device connection card */}
-        <div className="flex flex-col items-stretch justify-between p-6 rounded-2xl bg-gradient-to-b from-[#140e0d] to-[#0a0504] border border-white/10 hover:border-amber-500/30 shadow-[0_15px_40px_rgba(0,0,0,0.5)] transition-all duration-300 relative overflow-hidden group">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full blur-3xl pointer-events-none group-hover:bg-amber-500/10 transition-colors duration-500" />
+        <div className="flex flex-col items-stretch justify-between p-6 rounded-2xl bg-gradient-to-b from-[#140e0d] to-[#0a0504] border border-white/10 hover:border-slate-300/40 shadow-[0_15px_40px_rgba(0,0,0,0.5)] transition-all duration-300 relative overflow-hidden group">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-slate-300/5 rounded-full blur-3xl pointer-events-none group-hover:bg-slate-300/10 transition-colors duration-500" />
           
           <div className="flex items-start gap-4 mb-4">
-            <div className="p-3.5 rounded-xl bg-amber-500/10 text-amber-400 group-hover:scale-105 group-hover:bg-amber-500/15 transition-all duration-300 flex items-center justify-center border border-amber-500/20">
+            <div className="p-3.5 rounded-xl bg-slate-300/10 text-slate-100 group-hover:scale-105 group-hover:bg-slate-300/20 transition-all duration-300 flex items-center justify-center border border-slate-300/20">
               <FolderSync className="w-6 h-6 stroke-[1.5] animate-pulse" />
             </div>
             <div className="flex flex-col text-left">
@@ -473,17 +536,20 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
               <span className="text-xs text-slate-400 font-light mt-1 leading-relaxed">
                 Automated system-wide MediaStore scanning for storage directories and metadata indexing.
               </span>
+              <span className="text-[10px] text-slate-300/90 font-medium tracking-wide uppercase mt-2.5 block border-t border-slate-300/10 pt-2.5">
+                Instruction: Select a folder, and the system scans and uploads files automatically.
+              </span>
             </div>
           </div>
           
           <button
             onClick={handleSmartScan}
             disabled={isScanning}
-            className="w-full py-3 px-5 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-stone-950 font-sans text-xs font-bold tracking-widest uppercase cursor-pointer transition-all active:scale-[98.5%] disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_4px_20px_rgba(245,158,11,0.15)] flex items-center justify-center gap-2 border-0 mt-2"
+            className="w-full py-3 px-5 rounded-xl bg-gradient-to-r from-slate-400 via-slate-100 to-slate-400 hover:from-slate-300 hover:via-white hover:to-slate-300 text-stone-950 font-sans text-xs font-bold tracking-widest uppercase cursor-pointer transition-all active:scale-[98.5%] disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_4px_20px_rgba(255,255,255,0.15)] flex items-center justify-center gap-2 border-0 mt-2"
           >
             {isScanning ? (
               <>
-                <div className="w-4 h-4 border-2 border-stone-950 border-t-transparent rounded-full animate-spin" />
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 <span>Scanning Device...</span>
               </>
             ) : (
@@ -551,39 +617,39 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
-            className="p-6 rounded-2xl bg-amber-950/10 border-2 border-amber-500/20 text-slate-200 flex flex-col md:flex-row items-center gap-6 shadow-[0_10px_30px_rgba(245,158,11,0.05)] overflow-hidden"
+            className="p-6 rounded-2xl bg-slate-950/20 border-2 border-slate-300/20 text-slate-200 flex flex-col md:flex-row items-center gap-6 shadow-[0_10px_30px_rgba(255,255,255,0.05)] overflow-hidden"
           >
             {/* Circular Radar Sweep Screen */}
-            <div className="w-24 h-24 rounded-full border-2 border-amber-500/30 relative flex items-center justify-center shrink-0 overflow-hidden bg-stone-950 shadow-[inset_0_0_15px_rgba(245,158,11,0.3)]">
+            <div className="w-24 h-24 rounded-full border-2 border-slate-300/30 relative flex items-center justify-center shrink-0 overflow-hidden bg-stone-950 shadow-[inset_0_0_15px_rgba(255,255,255,0.15)]">
               {/* Spinning radar beam */}
-              <div className="absolute inset-0 bg-[conic-gradient(from_0deg,transparent_60%,rgba(245,158,11,0.45)_100%)] animate-spin" style={{ animationDuration: "2.5s" }} />
+              <div className="absolute inset-0 bg-[conic-gradient(from_0deg,transparent_60%,rgba(226,232,240,0.45)_100%)] animate-spin" style={{ animationDuration: "2.5s" }} />
               {/* Radar concentric target circles */}
-              <div className="absolute w-16 h-16 rounded-full border border-amber-500/15" />
-              <div className="absolute w-8 h-8 rounded-full border border-amber-500/10" />
+              <div className="absolute w-16 h-16 rounded-full border border-slate-300/15" />
+              <div className="absolute w-8 h-8 rounded-full border border-slate-300/10" />
               {/* Horizontal scan line */}
-              <div className="absolute inset-x-0 h-[2px] bg-amber-400/80 animate-[pulse_1.2s_infinite] shadow-[0_0_8px_rgba(245,158,11,0.8)]" />
-              <HardDrive className="w-6 h-6 text-amber-500 stroke-[1.5] relative z-10 animate-bounce" />
+              <div className="absolute inset-x-0 h-[2px] bg-slate-200/80 animate-[pulse_1.2s_infinite] shadow-[0_0_8px_rgba(255,255,255,0.8)]" />
+              <HardDrive className="w-6 h-6 text-slate-200 stroke-[1.5] relative z-10 animate-bounce" />
             </div>
 
             <div className="flex flex-col gap-3 flex-1 w-full text-left">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                <h4 className="font-sans text-[11px] font-semibold uppercase tracking-widest text-amber-500 flex items-center gap-2">
-                  <span className="w-2 h-2 bg-amber-500 rounded-full animate-ping" />
+                <h4 className="font-sans text-[11px] font-semibold uppercase tracking-widest text-slate-100 flex items-center gap-2">
+                  <span className="w-2 h-2 bg-slate-300 rounded-full animate-ping" />
                   Live Media Scanner Active
                 </h4>
-                <span className="font-mono text-[10px] text-amber-400 font-bold">{scanProgress}% Completed</span>
+                <span className="font-mono text-[10px] text-slate-200 font-bold">{scanProgress}% Completed</span>
               </div>
 
               {/* Current file or step */}
-              <div className="bg-stone-950/70 border border-amber-500/10 rounded-lg p-2.5 font-mono text-[11px] text-slate-300 flex items-center gap-2 min-h-[38px] truncate">
-                <span className="text-amber-500 select-none">&gt;</span>
+              <div className="bg-stone-950/70 border border-slate-300/10 rounded-lg p-2.5 font-mono text-[11px] text-slate-300 flex items-center gap-2 min-h-[38px] truncate">
+                <span className="text-slate-300 select-none">&gt;</span>
                 <span className="truncate">{currentScanFile || "Acquiring MediaStore links..."}</span>
               </div>
 
               {/* Progress Bar with modern nested neon track */}
               <div className="w-full h-2 bg-stone-900 rounded-full overflow-hidden border border-white/5 relative">
                 <motion.div
-                  className="h-full bg-gradient-to-r from-amber-600 to-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.5)] rounded-full"
+                  className="h-full bg-gradient-to-r from-slate-400 via-white to-slate-400 shadow-[0_0_10px_rgba(255,255,255,0.4)] rounded-full"
                   style={{ width: `${scanProgress}%` }}
                 />
               </div>
@@ -646,7 +712,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
           })}
         </div>
 
-        {/* Live Search and Sort Controls with Glass Styling */}
+        {/* Live Search Controls with Glass Styling */}
         <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:max-w-xl">
           <div className="relative flex-1 w-full">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -657,28 +723,6 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
               placeholder="Search songs, artists, or albums..."
               className="w-full bg-[#0f0a09]/50 hover:bg-white/[0.04] focus:bg-white/[0.05] border border-stone-850 focus:border-white/30 py-3 pl-11 pr-5 rounded-xl text-xs text-white placeholder-slate-400 outline-none transition-all duration-200"
             />
-          </div>
-
-          <div className="relative w-full sm:w-auto shrink-0 flex items-center gap-2">
-            <label htmlFor="library-sort" className="text-[11px] font-sans font-semibold tracking-wider text-slate-400 uppercase whitespace-nowrap hidden sm:inline">
-              Sort:
-            </label>
-            <div className="relative w-full sm:w-auto">
-              <ArrowUpDown className="absolute left-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-              <select
-                id="library-sort"
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
-                className="w-full sm:w-auto bg-[#0f0a09]/50 hover:bg-white/[0.04] focus:bg-[#140e0d] border border-stone-850 focus:border-white/30 py-3 pl-10 pr-9 rounded-xl text-xs text-white appearance-none outline-none transition-all duration-200 cursor-pointer font-sans"
-              >
-                <option value="dateAdded" className="bg-[#0f0a09] text-white">Date Added</option>
-                <option value="artist" className="bg-[#0f0a09] text-white">Artist</option>
-                <option value="title" className="bg-[#0f0a09] text-white">Title</option>
-              </select>
-              <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 flex items-center justify-center">
-                <ChevronDown className="w-3.5 h-3.5" />
-              </div>
-            </div>
           </div>
         </div>
       </div>
@@ -701,14 +745,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
               <span>Select all ({filteredTracks.length})</span>
             </button>
             
-            {!isSelectionMode ? (
-              <button
-                onClick={() => setIsSelectionMode(true)}
-                className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-slate-300 hover:text-white text-[11px] transition-all cursor-pointer font-sans"
-              >
-                Enter Selection Mode
-              </button>
-            ) : (
+            {isSelectionMode && (
               <span className="px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-[10px] font-sans font-semibold text-amber-400 uppercase tracking-wider">
                 Selection Mode Active ({selectedTrackIds.length} Selected)
               </span>
@@ -798,19 +835,15 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
 
                         {/* Track Album Art Thumbnail */}
                         <div className="w-10 h-10 rounded-lg overflow-hidden bg-white/5 border border-white/10 shrink-0 flex items-center justify-center relative">
-                          {track.imageUrl || track.albumArtUrl ? (
-                            <img 
-                              src={track.imageUrl || track.albumArtUrl || ""} 
-                              alt={track.name}
-                              className="w-full h-full object-cover"
-                              referrerPolicy="no-referrer"
-                              onError={(e) => {
-                                (e.currentTarget as HTMLImageElement).src = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150&auto=format&fit=crop&q=80";
-                              }}
-                            />
-                          ) : (
-                            <Disc className="w-5 h-5 text-slate-400 stroke-[1.5]" />
-                          )}
+                          <img 
+                            src={getAlbumArtForTrack(track)} 
+                            alt={track.name}
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLImageElement).src = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150&auto=format&fit=crop&q=80";
+                            }}
+                          />
                         </div>
 
                         <div className="truncate flex flex-col gap-0.5">
@@ -903,19 +936,15 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                                   
                                   {/* Track Album Art Thumbnail */}
                                   <div className="w-8 h-8 rounded-lg overflow-hidden bg-white/5 border border-white/10 shrink-0 flex items-center justify-center relative">
-                                    {track.imageUrl || track.albumArtUrl ? (
-                                      <img 
-                                        src={track.imageUrl || track.albumArtUrl || ""} 
-                                        alt={track.name}
-                                        className="w-full h-full object-cover"
-                                        referrerPolicy="no-referrer"
-                                        onError={(e) => {
-                                          (e.currentTarget as HTMLImageElement).src = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150&auto=format&fit=crop&q=80";
-                                        }}
-                                      />
-                                    ) : (
-                                      <Disc className="w-4 h-4 text-slate-400 stroke-[1.5]" />
-                                    )}
+                                    <img 
+                                      src={getAlbumArtForTrack(track)} 
+                                      alt={track.name}
+                                      className="w-full h-full object-cover"
+                                      referrerPolicy="no-referrer"
+                                      onError={(e) => {
+                                        (e.currentTarget as HTMLImageElement).src = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150&auto=format&fit=crop&q=80";
+                                      }}
+                                    />
                                   </div>
 
                                   <div className="truncate flex flex-col">
@@ -1003,6 +1032,106 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                                   
                                   {/* Track Album Art Thumbnail */}
                                   <div className="w-8 h-8 rounded-lg overflow-hidden bg-white/5 border border-white/10 shrink-0 flex items-center justify-center relative">
+                                    <img 
+                                      src={getAlbumArtForTrack(track)} 
+                                      alt={track.name}
+                                      className="w-full h-full object-cover"
+                                      referrerPolicy="no-referrer"
+                                      onError={(e) => {
+                                        (e.currentTarget as HTMLImageElement).src = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150&auto=format&fit=crop&q=80";
+                                      }}
+                                    />
+                                  </div>
+
+                                  <div className="truncate flex flex-col">
+                                    <span className={`text-[12px] font-sans font-medium truncate ${isPlayingActive ? "text-white" : "text-slate-200"}`}>
+                                      {track.name}
+                                    </span>
+                                    <span className="text-[10px] text-slate-500 font-light mt-0.5">
+                                      {track.artist ? `${track.artist}` : "Unknown Artist"}
+                                    </span>
+                                  </div>
+                                </div>
+                                <span className="text-xs text-slate-500 font-sans font-medium">
+                                  {track.duration ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}` : ""}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* RELEASE DATE Grouping */}
+            {viewCategory === "releaseDate" && (
+              <div className="flex flex-col gap-3">
+                {Object.keys(tracksByReleaseDate).sort((a, b) => {
+                  if (a === "Unknown Release Date") return 1;
+                  if (b === "Unknown Release Date") return -1;
+                  return new Date(b).getTime() - new Date(a).getTime();
+                }).map((dateKey) => {
+                  const groupTracks = tracksByReleaseDate[dateKey];
+                  const isExpanded = !!expandedGroups[dateKey];
+                  return (
+                    <div key={dateKey} className="rounded-xl border border-white/10 bg-[#0f0a09]/50 overflow-hidden">
+                      <div
+                        onClick={() => toggleGroup(dateKey)}
+                        className="p-4 bg-white/[0.015] flex items-center justify-between cursor-pointer hover:bg-white/[0.03] transition-colors"
+                      >
+                        <div className="flex items-center gap-3 text-slate-200">
+                          {isExpanded ? <ChevronDown className="w-4 h-4 text-white" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                          <Calendar className="w-4 h-4 text-white" />
+                          <span className="text-[13px] font-sans font-semibold tracking-wide text-white">{dateKey}</span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 font-sans font-medium px-2 py-0.5 bg-white/[0.03] rounded-lg">
+                          {groupTracks.length === 1 ? "1 song" : `${groupTracks.length} songs`}
+                        </span>
+                      </div>
+                      
+                      {isExpanded && (
+                        <div className="p-2 bg-black/[0.15] border-t border-white/5 flex flex-col gap-1">
+                          {groupTracks.map((track) => {
+                            const isSelectedForDel = selectedTrackIds.includes(track.id);
+                            const isPlayingActive = track.id === currentPlayingTrackId;
+                            return (
+                              <div
+                                key={track.id}
+                                {...bindLongPress(track.id, () => {
+                                  if (isSelectionMode) {
+                                    toggleSelectTrack(track.id);
+                                  } else {
+                                    onPlayTrackById(track.id, groupTracks);
+                                  }
+                                })}
+                                className={`p-3 rounded-lg flex items-center justify-between gap-3 cursor-pointer group transition-all select-none ${
+                                  isPlayingActive 
+                                    ? "bg-white/10" 
+                                    : isSelectedForDel
+                                      ? "bg-amber-500/10 border border-amber-500/20"
+                                      : "hover:bg-white/[0.02]"
+                                }`}
+                              >
+                                <div className="flex items-center gap-3 truncate max-w-[80%]">
+                                  <button
+                                    onClick={(e) => toggleSelectTrack(track.id, e)}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    className={`text-slate-450 hover:text-white p-0.5 focus:outline-none cursor-pointer transition-opacity duration-200 ${
+                                      isSelectionMode ? "opacity-100 text-amber-500" : "opacity-25 sm:opacity-0 sm:group-hover:opacity-60 hover:!opacity-100"
+                                    }`}
+                                  >
+                                    {isSelectedForDel ? (
+                                      <CheckSquare className="w-3.5 h-3.5 text-amber-500" />
+                                    ) : (
+                                      <Square className="w-3.5 h-3.5 text-slate-700 group-hover:text-slate-400" />
+                                    )}
+                                  </button>
+                                  
+                                  {/* Track Album Art Thumbnail */}
+                                  <div className="w-8 h-8 rounded-lg overflow-hidden bg-white/5 border border-white/10 shrink-0 flex items-center justify-center relative">
                                     {track.imageUrl || track.albumArtUrl ? (
                                       <img 
                                         src={track.imageUrl || track.albumArtUrl || ""} 
@@ -1023,7 +1152,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                                       {track.name}
                                     </span>
                                     <span className="text-[10px] text-slate-500 font-light mt-0.5">
-                                      {track.artist ? `${track.artist}` : "Unknown Artist"}
+                                      {track.artist ? `${track.artist}` : "Unknown Artist"} • {track.album ? `${track.album}` : "Unknown Album"}
                                     </span>
                                   </div>
                                 </div>
@@ -1143,6 +1272,60 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Custom Sleek Glass Confirmation Dialog */}
+      <AnimatePresence>
+        {showDeleteConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 10 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 10 }}
+              className="w-full max-w-md bg-[#0f0a09] border border-stone-800 rounded-2xl p-6 shadow-2xl text-left"
+            >
+              <div className="flex items-center gap-3.5 mb-4">
+                <div className="p-3 rounded-xl bg-red-500/10 text-red-500 border border-red-500/20">
+                  <Trash2 className="w-6 h-6 stroke-[1.5]" />
+                </div>
+                <div>
+                  <h3 className="text-base font-sans font-bold text-white uppercase tracking-wide">
+                    Confirm Deletion
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1 font-light">
+                    This action is irreversible.
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-300 font-light leading-relaxed mb-6">
+                Are you sure you want to permanently remove the selected <strong className="text-white font-semibold">{selectedTrackIds.length} track(s)</strong> from your local music library storage?
+              </p>
+
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="px-4 py-2.5 rounded-xl border border-stone-800 text-slate-400 hover:text-white hover:bg-white/5 text-xs font-sans font-medium transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDelete}
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white text-xs font-sans font-bold transition-all active:scale-[98.5%] cursor-pointer shadow-lg shadow-red-500/10"
+                >
+                  Delete Permanently
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 };

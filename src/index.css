@@ -229,6 +229,40 @@
     inset 0 1px 1px rgba(0,0,0,0.25);
 }
 
+/* Shiny polished metal drop down menu backdrop and look */
+.polished-metal-dropdown {
+  backdrop-filter: blur(12px) !important;
+  background: 
+    repeating-radial-gradient(circle at 50% 50%, transparent 0px, transparent 1.5px, rgba(255,255,255,0.08) 1.5px, rgba(255,255,255,0.08) 2px, transparent 2px, transparent 3.5px, rgba(0,0,0,0.1) 3.5px, rgba(0,0,0,0.1) 4px),
+    conic-gradient(from 120deg at 50% 50%, rgba(248, 250, 252, 0.75), rgba(203, 213, 225, 0.75) 30deg, rgba(226, 232, 240, 0.75) 60deg, rgba(100, 116, 139, 0.75) 110deg, rgba(148, 163, 184, 0.75) 140deg, rgba(248, 250, 252, 0.75) 180deg, rgba(203, 213, 225, 0.75) 210deg, rgba(226, 232, 240, 0.75) 240deg, rgba(71, 85, 105, 0.75) 290deg, rgba(148, 163, 184, 0.75) 320deg, rgba(248, 250, 252, 0.75) 360deg) !important;
+  border: 1.5px solid #ffffff !important;
+  color: #0c0a09 !important; /* Extremely dark/almost black stone-950 equivalent for extra contrast */
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+  box-shadow: 
+    0 4px 10px rgba(0, 0, 0, 0.65),
+    inset 0 1px 2px rgba(255, 255, 255, 0.95),
+    inset 0 -3px 8px rgba(0, 0, 0, 0.35),
+    0 0 12px rgba(255, 255, 255, 0.3) !important;
+  font-weight: 700 !important;
+  font-family: inherit;
+  transition: all 0.2s ease-in-out;
+}
+
+.polished-metal-dropdown:hover {
+  filter: brightness(1.04);
+  box-shadow: 
+    0 6px 14px rgba(0, 0, 0, 0.75),
+    inset 0 1px 3px rgba(255, 255, 255, 1),
+    0 0 16px rgba(255, 255, 255, 0.4) !important;
+}
+
+.polished-metal-dropdown option {
+  background-color: #120d0c !important;
+  color: #f8fafc !important;
+  font-weight: 600 !important;
+  font-size: 14px !important;
+}
+
 /* Custom sleek slider handle - brushed chrome */
 input[type="range"]::-webkit-slider-thumb {
   border: 1.5px solid #ffffff;

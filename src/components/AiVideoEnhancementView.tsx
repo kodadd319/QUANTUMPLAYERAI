@@ -42,48 +42,12 @@ export interface VideoTrack {
   thumbnail: string;
 }
 
-const BUILTIN_VIDEOS: VideoTrack[] = [
-  {
-    id: "sample-1",
-    name: "Big Buck Bunny",
-    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-    duration: "9:56",
-    creator: "Blender Foundation",
-    category: "Cinematic",
-    thumbnail: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=500&auto=format&fit=crop&q=80",
-  },
-  {
-    id: "sample-2",
-    name: "Elephants Dream",
-    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-    duration: "10:53",
-    creator: "Blender Foundation",
-    category: "Futuristic",
-    thumbnail: "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=500&auto=format&fit=crop&q=80",
-  },
-  {
-    id: "sample-3",
-    name: "For Bigger Blazes",
-    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-    duration: "0:15",
-    creator: "Google Developer",
-    category: "Cinematic",
-    thumbnail: "https://images.unsplash.com/photo-1518173946687-a4c8a383392e?w=500&auto=format&fit=crop&q=80",
-  },
-  {
-    id: "sample-4",
-    name: "For Bigger Escapes",
-    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-    duration: "0:15",
-    creator: "Google Developer",
-    category: "Futuristic",
-    thumbnail: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=500&auto=format&fit=crop&q=80",
-  }
-];
+const BUILTIN_VIDEOS: VideoTrack[] = [];
 
 interface AiVideoEnhancementViewProps {
   subscriptionTier: "free" | "paid";
   onBackToPlayer: () => void;
+  onNavigateToUpgrade: () => void;
   firestoreVideos: VideoTrack[];
   
   // Shared States from App.tsx
@@ -114,6 +78,7 @@ interface AiVideoEnhancementViewProps {
 export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
   subscriptionTier: parentSubscriptionTier,
   onBackToPlayer,
+  onNavigateToUpgrade,
   firestoreVideos,
   
   // Shared States
@@ -132,9 +97,7 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
   aiOptimizedFilters,
   setAiOptimizedFilters
 }) => {
-  // Local premium override simulation so users can immediately test drive premium 
-  const [simulatedPremium, setSimulatedPremium] = useState(false);
-  const isPremiumActive = parentSubscriptionTier === "paid" || simulatedPremium;
+  const isPremiumActive = parentSubscriptionTier === "paid";
 
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [videoOptimizeError, setVideoOptimizeError] = useState("");
@@ -331,8 +294,7 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
 
   const handleApplyPreset = async (preset: typeof PRESETS[0]) => {
     if (!isPremiumActive) {
-      // Prompt upgrade or trigger simulation
-      setVideoOptimizeError("This advanced orchestration preset requires VIP Premium active.");
+      onNavigateToUpgrade();
       return;
     }
     setActivePreset(preset.id);
@@ -456,22 +418,15 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
           </p>
         </div>
 
-        {/* Back and Premium Simulator Button */}
+        {/* Back and Upgrade Button */}
         <div className="flex flex-wrap items-center gap-2.5">
           {parentSubscriptionTier !== "paid" && (
             <button
-              onClick={() => {
-                setSimulatedPremium(!simulatedPremium);
-                addDiagnosticLog(simulatedPremium ? "Deactivated Simulated Premium License" : "Activated Simulated Premium VIP License");
-              }}
-              className={`px-3.5 py-2 rounded-xl text-xs font-sans font-bold tracking-wide transition-all border flex items-center gap-1.5 cursor-pointer ${
-                simulatedPremium 
-                  ? "bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20 shadow-md shadow-amber-500/5" 
-                  : "bg-stone-900 border-stone-800 text-stone-400 hover:text-white hover:bg-stone-850"
-              }`}
+              onClick={onNavigateToUpgrade}
+              className="px-3.5 py-2 rounded-xl text-xs font-sans font-bold tracking-wide transition-all border bg-gradient-to-r from-amber-500/10 to-amber-600/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20 hover:border-amber-500 shadow-md flex items-center gap-1.5 cursor-pointer"
             >
-              <Crown className="w-3.5 h-3.5 fill-current" />
-              {simulatedPremium ? "Turn Off Demo Premium" : "Try Free Premium Demo"}
+              <Crown className="w-3.5 h-3.5 fill-current animate-pulse" />
+              Upgrade to VIP
             </button>
           )}
           
@@ -522,9 +477,11 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
                     <span className="text-[10px] font-sans font-black uppercase tracking-widest text-stone-400 group-hover:text-amber-400 transition-colors">
                       {preset.badge}
                     </span>
-                    {isSelectedPreset && (
+                    {!isPremiumActive ? (
+                      <Lock className="w-3.5 h-3.5 text-stone-500 group-hover:text-amber-500 transition-colors" />
+                    ) : isSelectedPreset ? (
                       <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
-                    )}
+                    ) : null}
                   </div>
                   <h3 className="text-sm font-sans font-bold text-white group-hover:translate-x-0.5 transition-transform">
                     {preset.name}
@@ -544,7 +501,7 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
                     </span>
                   </div>
                   <span className="text-[10px] font-sans font-extrabold text-amber-500 flex items-center gap-1 group-hover:text-white transition-colors">
-                    {isSelectedPreset ? "Active" : "Apply Grade →"}
+                    {!isPremiumActive ? "Unlock →" : isSelectedPreset ? "Active" : "Apply Grade →"}
                   </span>
                 </div>
               </motion.button>
@@ -560,6 +517,27 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
         <div className="lg:col-span-7 flex flex-col gap-5">
           <div className="p-6 rounded-3xl bg-stone-900/60 border border-stone-850 shadow-[0_20px_50px_rgba(0,0,0,0.6)] flex flex-col gap-6 backdrop-blur-xl relative overflow-hidden">
             <div className="absolute top-0 left-0 w-32 h-32 bg-amber-500/2 rounded-full blur-3xl pointer-events-none" />
+            
+            {!isPremiumActive && (
+              <div className="absolute inset-0 bg-stone-950/85 backdrop-blur-sm z-30 flex flex-col items-center justify-center text-center p-6">
+                <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 mb-4 flex items-center justify-center">
+                  <Lock className="w-8 h-8 text-amber-500 animate-pulse" />
+                </div>
+                <h3 className="text-base font-sans font-bold text-white uppercase tracking-wider">
+                  AI Video Tuning Locked
+                </h3>
+                <p className="text-[11px] text-stone-400 mt-2 max-w-xs leading-relaxed font-light">
+                  Upgrade to VIP Premium to unlock advanced custom models, upscaling to 8K, color grading, and automated AI tuning.
+                </p>
+                <button
+                  onClick={onNavigateToUpgrade}
+                  className="mt-6 px-6 py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-stone-950 text-xs font-black uppercase tracking-widest flex items-center gap-1.5 shadow-lg active:scale-95 transition-all cursor-pointer"
+                >
+                  <Crown className="w-4 h-4 fill-current animate-pulse" />
+                  Upgrade to VIP Premium
+                </button>
+              </div>
+            )}
             
             <div className="flex items-center justify-between pb-3.5 border-b border-stone-800">
               <div className="flex items-center gap-2.5">
@@ -609,16 +587,16 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
                       addDiagnosticLog(`Video changed: ${found.name}`);
                     }
                   }}
-                  className="w-full px-4 py-3.5 text-xs bg-stone-950 hover:bg-black border border-stone-800 text-white rounded-xl focus:outline-none cursor-pointer appearance-none font-sans font-semibold tracking-wide shadow-inner focus:border-amber-500/40 transition-all"
+                  className="w-full px-4 py-3.5 text-sm polished-metal-dropdown rounded-xl focus:outline-none cursor-pointer appearance-none font-sans font-semibold tracking-wide"
                 >
                   {allVideosCombined.map((vid) => (
-                    <option key={vid.id} value={vid.id} className="bg-stone-950 text-white">
+                    <option key={vid.id} value={vid.id}>
                       {vid.name} ({vid.category})
                     </option>
                   ))}
                 </select>
-                <div className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-stone-400">
-                  <SlidersHorizontal className="w-4 h-4 text-stone-500" />
+                <div className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-stone-900 z-10">
+                  <SlidersHorizontal className="w-4 h-4 text-stone-900" />
                 </div>
               </div>
               {selectedVideo && (
@@ -926,14 +904,11 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
                 </div>
                 <button
                   type="button"
-                  onClick={() => {
-                    setSimulatedPremium(true);
-                    addDiagnosticLog("Simulated Premium License Active. Welcome!");
-                  }}
+                  onClick={onNavigateToUpgrade}
                   className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-stone-950 text-xs font-extrabold uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg hover:shadow-amber-500/10 cursor-pointer active:scale-98 transition-all"
                 >
-                  <Crown className="w-4 h-4 fill-current" />
-                  Turn On Demo Premium
+                  <Crown className="w-4 h-4 fill-current animate-pulse" />
+                  Upgrade to VIP Premium
                 </button>
               </div>
             ) : (

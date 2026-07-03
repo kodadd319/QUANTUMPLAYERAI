@@ -356,28 +356,7 @@ export const UpgradeView: React.FC<UpgradeViewProps> = ({
 
       </div>
 
-      {/* Simulation / Developer Bypass for Testing */}
-      <div className="flex flex-col items-center justify-center gap-3 p-6 rounded-3xl bg-stone-950/45 border border-stone-900/60 mt-4 text-center">
-        <h4 className="text-[9px] font-sans font-bold uppercase tracking-widest text-stone-400 flex items-center gap-1.5 justify-center">
-          <Sparkles className="w-3 h-3 text-stone-500" />
-          Developer Testing Center
-        </h4>
-        <p className="text-[10px] font-sans text-stone-500 max-w-sm leading-relaxed">
-          While Stripe Checkout handles actual real-world revenue collection, use this simulator tool to instantly toggle Premium Active status in this browser session.
-        </p>
-        <button
-          onClick={() => {
-            onChangeSubscriptionTier(subscriptionTier === "paid" ? "free" : "paid");
-          }}
-          className={`px-4 py-2.5 rounded-xl font-sans text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
-            subscriptionTier === "paid"
-              ? "bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20"
-              : "bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20"
-          }`}
-        >
-          {subscriptionTier === "paid" ? "Deactivate Premium Simulation" : "Activate Premium Simulation"}
-        </button>
-      </div>
+
 
       {/* Billing Info Footer Area */}
     </motion.div>

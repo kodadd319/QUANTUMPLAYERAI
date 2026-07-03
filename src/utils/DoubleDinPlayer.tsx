@@ -17,6 +17,7 @@ import {
   Music
 } from "lucide-react";
 import { Track } from "../types";
+import { getAlbumArtForTrack } from "./albumArt";
 
 interface DoubleDinPlayerProps {
   currentTrack: Track | null;
@@ -146,9 +147,9 @@ export function DoubleDinPlayer({
         <div className="relative w-64 h-64 sm:w-72 sm:h-72 mx-auto my-6 rounded-2xl overflow-hidden shadow-2xl border border-neutral-800 bg-neutral-900 flex items-center justify-center group transition-all duration-300 hover:border-neutral-700/50">
           
           <AnimatePresence mode="wait">
-            {(currentTrack?.albumArtUrl || currentTrack?.imageUrl) ? (
+            {currentTrack ? (
               <motion.div
-                key={currentTrack.albumArtUrl || currentTrack.imageUrl}
+                key={currentTrack.id}
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
@@ -156,13 +157,13 @@ export function DoubleDinPlayer({
                 className="w-full h-full relative"
               >
                 <img
-                  src={currentTrack.albumArtUrl || currentTrack.imageUrl || undefined}
+                  src={getAlbumArtForTrack(currentTrack)}
                   alt={currentTrack.name || "Album Art"}
                   referrerPolicy="no-referrer"
                   className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                   onError={(e) => {
                     // Fallback if URL is broken
-                    (e.currentTarget as HTMLImageElement).style.display = "none";
+                    (e.currentTarget as HTMLImageElement).src = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80";
                   }}
                 />
                 

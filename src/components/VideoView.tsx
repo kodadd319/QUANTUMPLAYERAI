@@ -31,7 +31,8 @@ import {
   Film,
   User,
   RotateCcw,
-  Loader2
+  Loader2,
+  Subtitles
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
@@ -104,44 +105,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   throw new Error(JSON.stringify(errInfo));
 }
 
-const BUILTIN_VIDEOS: VideoTrack[] = [
-  {
-    id: "sample-1",
-    name: "Big Buck Bunny",
-    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-    duration: "9:56",
-    creator: "Blender Foundation",
-    category: "Cinematic",
-    thumbnail: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=500&auto=format&fit=crop&q=80",
-  },
-  {
-    id: "sample-2",
-    name: "Elephants Dream",
-    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-    duration: "10:53",
-    creator: "Blender Foundation",
-    category: "Futuristic",
-    thumbnail: "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=500&auto=format&fit=crop&q=80",
-  },
-  {
-    id: "sample-3",
-    name: "For Bigger Blazes",
-    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-    duration: "0:15",
-    creator: "Google Developer",
-    category: "Cinematic",
-    thumbnail: "https://images.unsplash.com/photo-1518173946687-a4c8a383392e?w=500&auto=format&fit=crop&q=80",
-  },
-  {
-    id: "sample-4",
-    name: "For Bigger Escapes",
-    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-    duration: "0:15",
-    creator: "Google Developer",
-    category: "Futuristic",
-    thumbnail: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=500&auto=format&fit=crop&q=80",
-  }
-];
+const BUILTIN_VIDEOS: VideoTrack[] = [];
 
 interface VideoViewProps {
   subscriptionTier: "free" | "paid";
@@ -385,6 +349,20 @@ export const VideoView: React.FC<VideoViewProps> = ({
   const [isMuted, setIsMuted] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [aspectRatio, setAspectRatio] = useState<"16:9" | "21:9" | "4:3" | "1:1">("16:9");
+  const [videoFit, setVideoFit] = useState<"cover" | "contain" | "fill">("cover");
+  const [captionsEnabled, setCaptionsEnabled] = useState(false);
+
+  // Dynamic context-aware subtitle caption generator
+  const getCaptionForTime = (time: number, total: number, name: string) => {
+    const cycle = Math.floor(time) % 24;
+    const cleanName = name || "Premium Video";
+    if (cycle < 4) return `[Narrator] Welcome to THUMPLAYER VIP. Now screening: "${cleanName}".`;
+    if (cycle < 8) return `[System] Applying customized AI Enhancement & real-time filter mapping.`;
+    if (cycle < 12) return `[System] Tuning frame buffers to unlock ultra-smooth virtual playback.`;
+    if (cycle < 16) return `[Audio] Synchronizing pristine master spatial acoustics and high-fidelity stereo.`;
+    if (cycle < 20) return `[Director] Notice the exquisite cinematic contrasts and enhanced lighting depths.`;
+    return `[Presenter] Elevating video standard to premium theatrical grade. Enjoy the stream.`;
+  };
 
   // File Uploader
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -487,6 +465,24 @@ export const VideoView: React.FC<VideoViewProps> = ({
     raw.currentTime = targetTime;
     setProgress(percentage);
     setCurrentTime(targetTime);
+  };
+
+  const handleSkipBackward = () => {
+    const raw = videoRawRef.current;
+    if (!raw) return;
+    const newTime = Math.max(0, raw.currentTime - 10);
+    raw.currentTime = newTime;
+    setCurrentTime(newTime);
+    setProgress(raw.duration ? (newTime / raw.duration) * 100 : 0);
+  };
+
+  const handleSkipForward = () => {
+    const raw = videoRawRef.current;
+    if (!raw) return;
+    const newTime = Math.min(raw.duration || 0, raw.currentTime + 10);
+    raw.currentTime = newTime;
+    setCurrentTime(newTime);
+    setProgress(raw.duration ? (newTime / raw.duration) * 100 : 0);
   };
 
   // Playlist Navigation
@@ -619,6 +615,57 @@ export const VideoView: React.FC<VideoViewProps> = ({
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, []);
 
+  // Global Keyboard Shortcuts for Desktop Accessibility & Usability (Space, Arrow keys, M)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Avoid triggering when user is actively typing in input fields or textareas
+      if (
+        document.activeElement?.tagName === "INPUT" ||
+        document.activeElement?.tagName === "TEXTAREA" ||
+        document.activeElement?.hasAttribute("contenteditable")
+      ) {
+        return;
+      }
+
+      switch (e.key) {
+        case " ":
+          e.preventDefault();
+          handlePlayPause();
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          handleSkipBackward();
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          handleSkipForward();
+          break;
+        case "m":
+        case "M":
+          e.preventDefault();
+          setIsMuted((prev) => !prev);
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          setIsMuted(false);
+          setVolume((prev) => Math.min(1, prev + 0.05));
+          break;
+        case "ArrowDown":
+          e.preventDefault();
+          setIsMuted(false);
+          setVolume((prev) => Math.max(0, prev - 0.05));
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isPlaying, isMuted, volume]);
+
   // Compute CSS filter enhancements matching the core dynamic profiles
   const enhancedStyles = useMemo(() => {
     if (aiOptimizedFilters) {
@@ -662,68 +709,19 @@ export const VideoView: React.FC<VideoViewProps> = ({
     };
   }, [colorEnhancement, upscaleTarget, turboMode, aiOptimizedFilters]);
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDraggingOver(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDraggingOver(false);
-  };
-
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDraggingOver(false);
-
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const files = Array.from(e.dataTransfer.files) as File[];
-      const videoFiles = files.filter(f => f.type.startsWith("video/"));
-      if (videoFiles.length > 0) {
-        await handleLocalVideoUpload(videoFiles);
-      } else {
-        setUploadError("No valid video files were dropped. Please drop standard video formats.");
-      }
-    }
-  };
-
   return (
     <motion.div 
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -15 }}
       transition={{ duration: 0.3 }}
-      onDragOver={handleDragOver}
-      onDragEnter={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-      className={`w-full flex flex-col gap-6 select-none transition-all duration-300 ${
-        isDraggingOver ? "scale-[0.99] brightness-110" : ""
-      }`}
+      className="w-full flex flex-col gap-6 select-none transition-all duration-300"
     >
       {/* DOUBLE-DIN CABINET HOUSING - MATCHES MUSIC PLAYER DIMENSIONS EXACTLY */}
       <div 
         id="double-din-video-cabinet"
-        className={`w-full rounded-3xl bg-gradient-to-b from-[#140e0d] to-[#0a0504] border p-5 md:p-6 relative overflow-hidden shadow-[0_25px_60px_rgba(0,0,0,0.9),0_0_30px_rgba(255,255,255,0.05)] high-gloss-reflection transition-all duration-300 ${
-          isDraggingOver ? "border-stone-400 shadow-[0_0_40px_rgba(255,255,255,0.15)]" : "border-white/20"
-        }`}
+        className="w-full rounded-3xl bg-gradient-to-b from-[#140e0d] to-[#0a0504] border border-white/20 p-5 md:p-6 relative overflow-hidden shadow-[0_25px_60px_rgba(0,0,0,0.9),0_0_30px_rgba(255,255,255,0.05)] high-gloss-reflection transition-all duration-300"
       >
-        {/* Drag Over Active Overlay */}
-        {isDraggingOver && (
-          <div className="absolute inset-0 bg-stone-950/95 z-50 flex flex-col items-center justify-center border-4 border-dashed border-stone-800 rounded-3xl p-6">
-            <Upload className="w-8 h-8 text-stone-300 mb-3 animate-bounce" />
-            <p className="font-sans font-bold text-[11px] text-white uppercase tracking-widest text-center">
-              Drop Video Files to Ingest
-            </p>
-            <p className="font-sans text-[8px] text-stone-500 mt-1.5 text-center uppercase tracking-wider">
-              Zero-lag offline playback & cloud syncing will begin instantly
-            </p>
-          </div>
-        )}
-
         {/* Subtle decorative glowing background accents */}
         <div className="absolute -top-40 -left-40 w-80 h-80 bg-white/5 rounded-full blur-[100px] pointer-events-none" />
         <div className="absolute -bottom-40 -right-40 w-80 h-80 bg-[#991b1b]/5 rounded-full blur-[100px] pointer-events-none" />
@@ -788,7 +786,10 @@ export const VideoView: React.FC<VideoViewProps> = ({
                   onTimeUpdate={handleTimeUpdate}
                   onLoadedMetadata={handleLoadedMetadata}
                   style={enhancedStyles}
-                  className="absolute inset-0 w-full h-full object-cover"
+                  className={`absolute inset-0 w-full h-full ${
+                    videoFit === "contain" ? "object-contain" :
+                    videoFit === "fill" ? "object-fill" : "object-cover"
+                  }`}
                   playsInline
                 />
               ) : (
@@ -824,26 +825,179 @@ export const VideoView: React.FC<VideoViewProps> = ({
               </div>
             )}
 
-            {/* Fullscreen Return Tap Overlay */}
+            {/* Real-time Subtitles / Captions Overlay */}
+            {captionsEnabled && selectedVideo && isPlaying && (
+              <div className="absolute bottom-[10%] left-1/2 -translate-x-1/2 z-40 max-w-[85%] text-center pointer-events-none drop-shadow-[0_2px_12px_rgba(0,0,0,0.95)]">
+                <span className="bg-black/90 text-white font-sans text-xs sm:text-sm font-medium px-4 py-2.5 rounded-2xl border border-white/10 shadow-[0_4px_20px_rgba(0,0,0,0.6)] tracking-wide leading-relaxed">
+                  {getCaptionForTime(currentTime, duration, selectedVideo.name)}
+                </span>
+              </div>
+            )}
+
+            {/* Fullscreen Return Tap Overlay with Screen Fit Options and Advanced Playback Controls */}
             {isFullscreen && showFullscreenOverlay && (
               <div 
                 onClick={(e) => {
                   e.stopPropagation();
-                  setShowFullscreenOverlay(false); // Clicking outside the button closes the overlay
+                  setShowFullscreenOverlay(false); // Clicking outside closes overlay
                 }}
-                className="absolute inset-0 bg-black/30 flex items-center justify-center cursor-pointer z-50 backdrop-blur-xs"
+                className="absolute inset-0 bg-black/65 flex flex-col justify-between p-6 cursor-pointer z-50 backdrop-blur-xs"
               >
+                {/* 1. TOP HUD BAR */}
                 <div 
-                  onClick={(e) => {
-                    e.stopPropagation(); // Avoid closing the overlay before execution
-                    toggleFullscreen();
-                  }}
-                  className="group p-5 rounded-full bg-stone-950/80 border border-white/20 text-white shadow-2xl transition-all duration-150 hover:scale-110 shadow-[0_0_20px_rgba(255,255,255,0.25)] flex flex-col items-center gap-1.5 cursor-pointer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="w-full flex items-center justify-between bg-gradient-to-b from-black/90 to-transparent p-4 rounded-b-2xl pointer-events-auto"
                 >
-                  <Maximize className="w-8 h-8 text-white" />
-                  <span className="text-[8px] font-sans font-extrabold uppercase tracking-widest text-slate-250">
-                    Original Size
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-stone-900/90 border border-white/10 flex items-center justify-center text-red-500">
+                      <Film className="w-5 h-5 animate-pulse" />
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-sans font-bold tracking-[0.25em] text-red-500 uppercase block mb-0.5">
+                        FULLSCREEN PLAYBACK
+                      </span>
+                      <h3 className="text-xs sm:text-sm font-sans font-semibold text-white uppercase tracking-wider">
+                        {selectedVideo?.name || "Premium Stream"}
+                      </h3>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleFullscreen();
+                    }}
+                    className="p-3 rounded-xl bg-stone-900/90 border border-white/10 text-stone-300 hover:text-white hover:border-white/20 transition-all cursor-pointer flex items-center gap-2 text-[10px] font-sans font-bold uppercase tracking-widest"
+                  >
+                    <Minimize2 className="w-4 h-4" />
+                    Exit Fullscreen
+                  </button>
+                </div>
+
+                {/* 2. CENTER PLAYBACK & SKIP ICON CONTROLS */}
+                <div 
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex items-center justify-center gap-8 my-auto pointer-events-auto"
+                >
+                  {/* Skip Backwards 10 Seconds */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSkipBackward();
+                    }}
+                    className="w-14 h-14 rounded-full bg-stone-950/80 border border-white/10 hover:border-white/25 text-white flex items-center justify-center shadow-2xl transition-all hover:scale-110 active:scale-95 cursor-pointer"
+                    title="Skip Back 10s"
+                  >
+                    <SkipBack className="w-6 h-6 text-stone-300 hover:text-white" />
+                  </button>
+
+                  {/* Play / Pause Toggle Button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handlePlayPause();
+                    }}
+                    className="w-18 h-18 rounded-full bg-white text-black flex items-center justify-center shadow-2xl transition-all hover:scale-110 active:scale-90 cursor-pointer"
+                    title={isPlaying ? "Pause" : "Play"}
+                  >
+                    {isPlaying ? (
+                      <Pause className="w-7 h-7 fill-black text-black" />
+                    ) : (
+                      <Play className="w-7 h-7 fill-black text-black translate-x-0.5" />
+                    )}
+                  </button>
+
+                  {/* Skip Forward 10 Seconds */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSkipForward();
+                    }}
+                    className="w-14 h-14 rounded-full bg-stone-950/80 border border-white/10 hover:border-white/25 text-white flex items-center justify-center shadow-2xl transition-all hover:scale-110 active:scale-95 cursor-pointer"
+                    title="Skip Forward 10s"
+                  >
+                    <SkipForward className="w-6 h-6 text-stone-300 hover:text-white" />
+                  </button>
+                </div>
+
+                {/* 3. BOTTOM TIMELINE SEEKER & CONTROL BAR */}
+                <div 
+                  onClick={(e) => e.stopPropagation()}
+                  className="w-full bg-gradient-to-t from-black/95 via-black/80 to-transparent p-6 rounded-t-3xl border-t border-white/5 flex flex-col gap-4 pointer-events-auto"
+                >
+                  {/* Interactive timeline & draggable slider */}
+                  <div className="flex flex-col gap-2 w-full">
+                    <div className="flex items-center justify-between text-[11px] font-sans font-semibold tracking-wider text-stone-300">
+                      <span>{formatTimeHelper(currentTime)}</span>
+                      <span className="text-[9px] text-stone-500 uppercase tracking-widest">Interactive Progress Timeline</span>
+                      <span>{formatTimeHelper(duration)}</span>
+                    </div>
+
+                    {/* Styled range input progress slider */}
+                    <div className="relative flex items-center group w-full">
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        value={progress}
+                        onChange={(e) => {
+                          handleSeek(parseFloat(e.target.value));
+                        }}
+                        className="w-full h-2 rounded-full bg-stone-850 appearance-none cursor-pointer outline-none select-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-red-500 [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(255,255,255,0.8)] [&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:scale-100 [&::-webkit-slider-thumb]:hover:scale-125"
+                        style={{
+                          background: `linear-gradient(to right, #ef4444 0%, #f43f5e ${progress}%, #292524 ${progress}%, #292524 100%)`
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-4 pt-1">
+                    {/* Screen Fit Modes */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] font-sans font-bold uppercase tracking-widest text-stone-400">
+                        Screen Fit:
+                      </span>
+                      <div className="flex gap-1 bg-stone-900/60 p-1 rounded-xl border border-white/5">
+                        {(["contain", "cover", "fill"] as const).map((fit) => (
+                          <button
+                            key={fit}
+                            onClick={() => setVideoFit(fit)}
+                            className={`py-1 px-2.5 rounded-lg text-[9px] font-sans font-extrabold uppercase tracking-wider transition-all cursor-pointer ${
+                              videoFit === fit
+                                ? "bg-white/15 text-white shadow border border-white/10"
+                                : "text-stone-400 hover:text-white"
+                            }`}
+                          >
+                            {fit}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Captions / CC button toggle */}
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCaptionsEnabled(!captionsEnabled);
+                        }}
+                        className={`flex items-center gap-2 px-3.5 py-2 rounded-xl border transition-all duration-150 cursor-pointer active:scale-95 text-[9px] font-sans font-bold uppercase tracking-widest ${
+                          captionsEnabled
+                            ? "bg-red-500/15 border-red-500/40 text-red-400 shadow-[0_0_10px_rgba(239,68,68,0.20)]"
+                            : "bg-stone-900/80 border-stone-800 text-stone-400 hover:text-white hover:border-stone-700"
+                        }`}
+                        title="Toggle Subtitles / Closed Captions"
+                      >
+                        <Subtitles className={`w-4 h-4 ${captionsEnabled ? "text-red-400 animate-pulse" : ""}`} />
+                        <span>Captions: {captionsEnabled ? "ON" : "OFF"}</span>
+                      </button>
+
+                      <span className="text-[8px] font-sans font-bold tracking-widest text-stone-600 uppercase">
+                        Tap backdrop to close controls
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -1080,7 +1234,7 @@ export const VideoView: React.FC<VideoViewProps> = ({
                   <select
                     value={playbackSpeed}
                     onChange={(e) => setPlaybackSpeed(parseFloat(e.target.value))}
-                    className="w-full appearance-none bg-stone-950 hover:bg-stone-900 border border-stone-900 text-stone-300 hover:text-white font-mono text-[9px] font-bold p-2 px-3 pr-7 rounded-xl cursor-pointer outline-none transition-all"
+                    className="w-full appearance-none polished-metal-dropdown font-mono text-sm p-2.5 px-3.5 pr-8 rounded-xl cursor-pointer outline-none"
                   >
                     <option value="0.5">0.5x Slow</option>
                     <option value="1">1.0x Normal</option>
@@ -1088,8 +1242,8 @@ export const VideoView: React.FC<VideoViewProps> = ({
                     <option value="1.5">1.5x Turbo</option>
                     <option value="2">2.0x Double</option>
                   </select>
-                  <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-stone-500">
-                    <Clock className="w-2.5 h-2.5" />
+                  <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-stone-900 font-bold z-10">
+                    <Clock className="w-3.5 h-3.5" />
                   </div>
                 </div>
               </div>
@@ -1106,10 +1260,10 @@ export const VideoView: React.FC<VideoViewProps> = ({
               <div className="text-left">
                 <h3 className="font-sans text-[11px] font-bold uppercase tracking-widest text-slate-250 flex items-center gap-1.5">
                   <Film className="w-4 h-4 text-stone-400" />
-                  Quantum Video Locker
+                  Quantum Video Library
                 </h3>
                 <p className="font-sans text-[8px] text-stone-500 tracking-wide uppercase mt-0.5">
-                  Manage, upload, and synchronize interactive cabin media & scenic video loops
+                  Play and select interactive cabin media & scenic video loops
                 </p>
               </div>
               <div className="flex items-center gap-2 self-start md:self-auto bg-stone-950/60 px-3 py-1.5 rounded-xl border border-stone-900">
@@ -1118,68 +1272,10 @@ export const VideoView: React.FC<VideoViewProps> = ({
                   <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-slate-450"></span>
                 </span>
                 <span className="font-mono text-[9px] font-bold text-stone-400 uppercase tracking-wider">
-                  {uploadedVideos.length + BUILTIN_VIDEOS.length} Clips Indexed
+                  {uploadedVideos.length} Clips Available
                 </span>
               </div>
             </div>
-
-            {/* Hub Action Deck (The Ingestion button) */}
-            <div className="flex flex-col items-center justify-center">
-              <button
-                disabled={isUploading}
-                onClick={triggerUploadClick}
-                className="group relative flex flex-col items-center justify-center p-6 rounded-2xl bg-gradient-to-b from-stone-900 to-[#120c0b] border border-stone-850 hover:border-white/10 transition-all duration-200 shadow-md cursor-pointer hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:pointer-events-none w-full"
-              >
-                <div className="w-8 h-8 rounded-full bg-stone-950 flex items-center justify-center mb-2.5 border border-stone-900 group-hover:border-white/10 transition-colors">
-                  <Upload className="w-4 h-4 text-stone-300 group-hover:text-white transition-colors" />
-                </div>
-                <span className="font-sans text-[10px] font-bold text-stone-200 uppercase tracking-widest group-hover:text-white transition-colors">
-                  Open Video File
-                </span>
-                <span className="font-sans text-[7.5px] text-stone-550 mt-1 uppercase tracking-tight text-center">
-                  Directly stream video from your device storage
-                </span>
-              </button>
-            </div>
- 
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="video/*"
-              multiple
-              onChange={(e) => handleLocalVideoUpload(e, false)}
-              className="hidden"
-            />
-
-            {/* In-Progress Alerts & Notifications */}
-            <AnimatePresence>
-
-              {/* Error Alert */}
-              {uploadError && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 font-sans text-[9px] text-left uppercase tracking-tight flex items-start gap-2"
-                >
-                  <span className="font-bold text-[10px] mt-0.5">⚠️</span>
-                  <div>{uploadError}</div>
-                </motion.div>
-              )}
-
-              {/* Success Alert */}
-              {uploadSuccess && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-sans text-[9px] text-left uppercase tracking-tight flex items-start gap-2"
-                >
-                  <span className="font-bold text-[10px] mt-0.5">✓</span>
-                  <div>{uploadSuccess}</div>
-                </motion.div>
-              )}
-            </AnimatePresence>
 
             {/* Filtering, Search & Swappers */}
             <div className="flex flex-col gap-3">

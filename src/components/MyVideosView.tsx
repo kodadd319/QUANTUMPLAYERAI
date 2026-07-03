@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { VideoTrack } from "../types";
 import { motion, AnimatePresence } from "motion/react";
+import { VideoThumbnail } from "./VideoThumbnail";
 import { requestNativeAndroidPermissions } from "../utils/audioScannerService";
 import { storeLocalVideo } from "../utils/localMediaStorage";
 
@@ -100,29 +101,42 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
   const [sortBy, setSortBy] = useState<"dateAdded" | "creator" | "title">("dateAdded");
   const [selectedVideoIds, setSelectedVideoIds] = useState<string[]>([]);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // Long press timer refs & selection mode triggers
   const longPressTimers = useRef<Record<string, any>>({});
   const isLongPressing = useRef<Record<string, boolean>>({});
+  const touchStartPos = useRef<Record<string, { x: number; y: number }>>({});
+  const hasMoved = useRef<Record<string, boolean>>({});
 
   const startLongPress = (id: string, e: React.MouseEvent | React.TouchEvent) => {
     if (longPressTimers.current[id]) {
       clearTimeout(longPressTimers.current[id]);
     }
     isLongPressing.current[id] = false;
+    hasMoved.current[id] = false;
+
+    if (e && "touches" in e && e.touches && e.touches[0]) {
+      touchStartPos.current[id] = {
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY
+      };
+    }
 
     longPressTimers.current[id] = setTimeout(() => {
-      isLongPressing.current[id] = true;
-      if (navigator.vibrate) {
-        navigator.vibrate(60);
-      }
-      setIsSelectionMode(true);
-      setSelectedVideoIds(prev => {
-        if (!prev.includes(id)) {
-          return [...prev, id];
+      if (!hasMoved.current[id]) {
+        isLongPressing.current[id] = true;
+        if (navigator.vibrate) {
+          navigator.vibrate(60);
         }
-        return prev;
-      });
+        setIsSelectionMode(true);
+        setSelectedVideoIds(prev => {
+          if (!prev.includes(id)) {
+            return [...prev, id];
+          }
+          return prev;
+        });
+      }
     }, 600);
   };
 
@@ -133,15 +147,30 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
     }
   };
 
+  const handleTouchMove = (id: string, e: React.TouchEvent) => {
+    if (!touchStartPos.current[id]) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+
+    const dx = Math.abs(touch.clientX - touchStartPos.current[id].x);
+    const dy = Math.abs(touch.clientY - touchStartPos.current[id].y);
+
+    if (dx > 8 || dy > 8) {
+      hasMoved.current[id] = true;
+      cancelLongPress(id);
+    }
+  };
+
   const endLongPress = (id: string, action: () => void) => {
     if (longPressTimers.current[id]) {
       clearTimeout(longPressTimers.current[id]);
       delete longPressTimers.current[id];
     }
-    if (!isLongPressing.current[id]) {
+    if (!isLongPressing.current[id] && !hasMoved.current[id]) {
       action();
     }
     isLongPressing.current[id] = false;
+    hasMoved.current[id] = false;
   };
 
   const bindLongPress = (id: string, action: () => void) => {
@@ -151,7 +180,7 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
       onMouseLeave: () => cancelLongPress(id),
       onTouchStart: (e: React.TouchEvent) => startLongPress(id, e),
       onTouchEnd: () => endLongPress(id, action),
-      onTouchMove: () => cancelLongPress(id),
+      onTouchMove: (e: React.TouchEvent) => handleTouchMove(id, e),
     };
   };
 
@@ -364,14 +393,17 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
     }
   };
 
-  const handleBatchDelete = async () => {
+  const handleBatchDelete = () => {
     if (selectedVideoIds.length === 0) return;
-    if (confirm(`Do you wish to permanently remove the selected ${selectedVideoIds.length} video(s) from your local video locker?`)) {
-      const idsToDelete = [...selectedVideoIds];
-      setSelectedVideoIds([]);
-      setIsSelectionMode(false);
-      await deleteSelectedVideos(idsToDelete);
-    }
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = async () => {
+    const idsToDelete = [...selectedVideoIds];
+    setSelectedVideoIds([]);
+    setIsSelectionMode(false);
+    setShowDeleteConfirm(false);
+    await deleteSelectedVideos(idsToDelete);
   };
 
   return (
@@ -404,11 +436,11 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
       {/* Media Scan Controls */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6" id="video-scanner-station">
         {/* Scan Device Button Card */}
-        <div className="flex flex-col items-stretch justify-between p-6 rounded-2xl bg-gradient-to-b from-[#121914] to-[#050705] border border-emerald-950/40 hover:border-emerald-500/30 shadow-[0_15px_40px_rgba(0,0,0,0.5)] transition-all duration-300 relative overflow-hidden group">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none group-hover:bg-emerald-500/10 transition-colors duration-500" />
+        <div className="flex flex-col items-stretch justify-between p-6 rounded-2xl bg-gradient-to-b from-[#140e0d] to-[#0a0504] border border-white/10 hover:border-slate-300/40 shadow-[0_15px_40px_rgba(0,0,0,0.5)] transition-all duration-300 relative overflow-hidden group">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-slate-300/5 rounded-full blur-3xl pointer-events-none group-hover:bg-slate-300/10 transition-colors duration-500" />
           
           <div className="flex items-start gap-4 mb-4">
-            <div className="p-3.5 rounded-xl bg-emerald-500/10 text-emerald-400 group-hover:scale-105 group-hover:bg-emerald-500/15 transition-all duration-300 flex items-center justify-center border border-emerald-500/20">
+            <div className="p-3.5 rounded-xl bg-slate-300/10 text-slate-100 group-hover:scale-105 group-hover:bg-slate-300/20 transition-all duration-300 flex items-center justify-center border border-slate-300/20">
               <FolderSync className="w-6 h-6 stroke-[1.5] animate-pulse" />
             </div>
             <div className="flex flex-col text-left">
@@ -418,13 +450,16 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
               <span className="text-xs text-slate-400 font-light mt-1 leading-relaxed">
                 Automated MediaStore scanning for storage directories and video container metadata indexing.
               </span>
+              <span className="text-[10px] text-slate-300/90 font-medium tracking-wide uppercase mt-2.5 block border-t border-slate-300/10 pt-2.5">
+                Instruction: Select a folder, and the system scans and uploads files automatically.
+              </span>
             </div>
           </div>
           
           <button
             onClick={handleSmartScan}
             disabled={isScanning}
-            className="w-full py-3 px-5 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-stone-950 font-sans text-xs font-bold tracking-widest uppercase cursor-pointer transition-all active:scale-[98.5%] disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_4px_20px_rgba(16,185,129,0.15)] flex items-center justify-center gap-2 border-0 mt-2"
+            className="w-full py-3 px-5 rounded-xl bg-gradient-to-r from-slate-400 via-slate-100 to-slate-400 hover:from-slate-300 hover:via-white hover:to-slate-300 text-stone-950 font-sans text-xs font-bold tracking-widest uppercase cursor-pointer transition-all active:scale-[98.5%] disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_4px_20px_rgba(255,255,255,0.15)] flex items-center justify-center gap-2 border-0 mt-2"
           >
             {isScanning ? (
               <>
@@ -441,11 +476,11 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
         </div>
 
         {/* Traditional Local Video Loader */}
-        <div className="flex flex-col items-stretch justify-between p-6 rounded-2xl bg-gradient-to-b from-[#121219] to-[#050507] border border-blue-950/40 hover:border-blue-500/30 shadow-[0_15px_40px_rgba(0,0,0,0.5)] transition-all duration-300 relative overflow-hidden group">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 rounded-full blur-3xl pointer-events-none group-hover:bg-blue-500/10 transition-colors duration-500" />
+        <div className="flex flex-col items-stretch justify-between p-6 rounded-2xl bg-gradient-to-b from-[#140e0d] to-[#0a0504] border border-white/10 hover:border-emerald-500/30 shadow-[0_15px_40px_rgba(0,0,0,0.5)] transition-all duration-300 relative overflow-hidden group">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none group-hover:bg-emerald-500/10 transition-colors duration-500" />
           
           <div className="flex items-start gap-4 mb-4">
-            <div className="p-3.5 rounded-xl bg-blue-500/10 text-blue-400 group-hover:scale-105 group-hover:bg-blue-500/15 transition-all duration-300 flex items-center justify-center border border-blue-500/20">
+            <div className="p-3.5 rounded-xl bg-emerald-500/10 text-emerald-400 group-hover:scale-105 group-hover:bg-emerald-500/15 transition-all duration-300 flex items-center justify-center border border-emerald-500/20">
               <Upload className="w-6 h-6 stroke-[1.5]" />
             </div>
             <div className="flex flex-col text-left">
@@ -483,34 +518,34 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
-            className="p-6 rounded-2xl bg-emerald-950/10 border-2 border-emerald-500/20 text-slate-200 flex flex-col md:flex-row items-center gap-6 shadow-[0_10px_30px_rgba(16,185,129,0.05)] overflow-hidden"
+            className="p-6 rounded-2xl bg-slate-950/20 border-2 border-slate-300/20 text-slate-200 flex flex-col md:flex-row items-center gap-6 shadow-[0_10px_30px_rgba(255,255,255,0.05)] overflow-hidden"
           >
             {/* Radar Circle */}
-            <div className="w-24 h-24 rounded-full border-2 border-emerald-500/30 relative flex items-center justify-center shrink-0 overflow-hidden bg-stone-950 shadow-[inset_0_0_15px_rgba(16,185,129,0.3)]">
-              <div className="absolute inset-0 bg-[conic-gradient(from_0deg,transparent_60%,rgba(16,185,129,0.45)_100%)] animate-spin" style={{ animationDuration: "2.5s" }} />
-              <div className="absolute w-16 h-16 rounded-full border border-emerald-500/15" />
-              <div className="absolute w-8 h-8 rounded-full border border-emerald-500/10" />
-              <div className="absolute inset-x-0 h-[2px] bg-emerald-400/80 animate-[pulse_1.2s_infinite] shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
-              <Video className="w-6 h-6 text-emerald-500 stroke-[1.5] relative z-10 animate-bounce" />
+            <div className="w-24 h-24 rounded-full border-2 border-slate-300/30 relative flex items-center justify-center shrink-0 overflow-hidden bg-stone-950 shadow-[inset_0_0_15px_rgba(255,255,255,0.15)]">
+              <div className="absolute inset-0 bg-[conic-gradient(from_0deg,transparent_60%,rgba(226,232,240,0.45)_100%)] animate-spin" style={{ animationDuration: "2.5s" }} />
+              <div className="absolute w-16 h-16 rounded-full border border-slate-300/15" />
+              <div className="absolute w-8 h-8 rounded-full border border-slate-300/10" />
+              <div className="absolute inset-x-0 h-[2px] bg-slate-200/80 animate-[pulse_1.2s_infinite] shadow-[0_0_8px_rgba(255,255,255,0.8)]" />
+              <Video className="w-6 h-6 text-slate-200 stroke-[1.5] relative z-10 animate-bounce" />
             </div>
 
             <div className="flex flex-col gap-3 flex-1 w-full text-left">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                <h4 className="font-sans text-[11px] font-semibold uppercase tracking-widest text-emerald-500 flex items-center gap-2">
-                  <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping" />
+                <h4 className="font-sans text-[11px] font-semibold uppercase tracking-widest text-slate-100 flex items-center gap-2">
+                  <span className="w-2 h-2 bg-slate-300 rounded-full animate-ping" />
                   Automated Video Scanner Engaged
                 </h4>
-                <span className="font-mono text-[10px] text-emerald-400 font-bold">{scanProgress}%</span>
+                <span className="font-mono text-[10px] text-slate-200 font-bold">{scanProgress}%</span>
               </div>
 
-              <div className="bg-stone-950/70 border border-emerald-500/10 rounded-lg p-2.5 font-mono text-[11px] text-slate-300 flex items-center gap-2 min-h-[38px] truncate">
-                <span className="text-emerald-500 select-none">&gt;</span>
+              <div className="bg-stone-950/70 border border-slate-300/10 rounded-lg p-2.5 font-mono text-[11px] text-slate-300 flex items-center gap-2 min-h-[38px] truncate">
+                <span className="text-slate-300 select-none">&gt;</span>
                 <span className="truncate">{currentScanFile || "Initiating database handshake..."}</span>
               </div>
 
               <div className="w-full h-2 bg-stone-900 rounded-full overflow-hidden border border-white/5 relative">
                 <motion.div
-                  className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.5)] rounded-full"
+                  className="h-full bg-gradient-to-r from-slate-400 via-white to-slate-400 shadow-[0_0_10px_rgba(255,255,255,0.4)] rounded-full"
                   style={{ width: `${scanProgress}%` }}
                 />
               </div>
@@ -572,7 +607,7 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
           })}
         </div>
 
-        {/* Live Search and Sorting Dropdowns */}
+        {/* Live Search Controls */}
         <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:max-w-xl">
           <div className="relative flex-1 w-full">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -583,28 +618,6 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
               placeholder="Search video titles, creators, or folders..."
               className="w-full bg-stone-950/40 hover:bg-white/[0.03] focus:bg-white/[0.05] border border-stone-850 focus:border-white/20 py-3 pl-11 pr-5 rounded-xl text-xs text-white placeholder-slate-400 outline-none transition-all duration-200"
             />
-          </div>
-
-          <div className="relative w-full sm:w-auto shrink-0 flex items-center gap-2">
-            <label htmlFor="video-library-sort" className="text-[11px] font-sans font-semibold tracking-wider text-slate-400 uppercase whitespace-nowrap hidden sm:inline">
-              Sort:
-            </label>
-            <div className="relative w-full sm:w-auto">
-              <ArrowUpDown className="absolute left-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-              <select
-                id="video-library-sort"
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
-                className="w-full sm:w-auto bg-stone-950/40 hover:bg-white/[0.03] focus:bg-stone-950 border border-stone-850 focus:border-white/20 py-3 pl-10 pr-9 rounded-xl text-xs text-white appearance-none outline-none transition-all duration-200 cursor-pointer font-sans"
-              >
-                <option value="dateAdded" className="bg-stone-950 text-white">Date Added</option>
-                <option value="creator" className="bg-stone-950 text-white">Creator</option>
-                <option value="title" className="bg-stone-950 text-white">Title</option>
-              </select>
-              <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 flex items-center justify-center">
-                <ChevronDown className="w-3.5 h-3.5" />
-              </div>
-            </div>
           </div>
         </div>
       </div>
@@ -709,19 +722,10 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
                     >
                       {/* Thumbnail Wrapper */}
                       <div className="aspect-video w-full relative bg-black/60 overflow-hidden">
-                        {vid.thumbnail ? (
-                          <img 
-                            src={vid.thumbnail} 
-                            alt={vid.name} 
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                            referrerPolicy="no-referrer"
-                          />
-                        ) : (
-                          <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-600 gap-1 bg-gradient-to-br from-stone-900 to-black">
-                            <Video className="w-8 h-8 stroke-[1]" />
-                            <span className="text-[10px] font-mono tracking-widest uppercase">No Preview</span>
-                          </div>
-                        )}
+                        <VideoThumbnail 
+                          video={vid} 
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        />
                         
                         {/* Play button overlay */}
                         <div className="absolute inset-0 bg-black/30 group-hover:bg-black/15 transition-colors flex items-center justify-center">
@@ -800,11 +804,10 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
                             }`}
                           >
                             <div className="aspect-video w-full relative bg-black/60 overflow-hidden">
-                              {vid.thumbnail ? (
-                                <img src={vid.thumbnail} alt={vid.name} className="w-full h-full object-cover" />
-                              ) : (
-                                <div className="absolute inset-0 flex items-center justify-center text-slate-600 bg-stone-900"><Video className="w-8 h-8" /></div>
-                              )}
+                              <VideoThumbnail 
+                                video={vid} 
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                              />
                               <div className="absolute inset-0 bg-black/30 group-hover:bg-black/15 flex items-center justify-center">
                                 <div className="p-2.5 rounded-full bg-white/10 text-white backdrop-blur-xs">
                                   <Play className="w-4 h-4 fill-white text-white" />
@@ -869,11 +872,10 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
                             }`}
                           >
                             <div className="aspect-video w-full relative bg-black/60 overflow-hidden">
-                              {vid.thumbnail ? (
-                                <img src={vid.thumbnail} alt={vid.name} className="w-full h-full object-cover" />
-                              ) : (
-                                <div className="absolute inset-0 flex items-center justify-center text-slate-600 bg-stone-900"><Video className="w-8 h-8" /></div>
-                              )}
+                              <VideoThumbnail 
+                                video={vid} 
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                              />
                               <div className="absolute inset-0 bg-black/30 group-hover:bg-black/15 flex items-center justify-center">
                                 <div className="p-2.5 rounded-full bg-white/10 text-white backdrop-blur-xs">
                                   <Play className="w-4 h-4 fill-white text-white" />
@@ -919,6 +921,60 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
         onChange={handleWebFolderScanChange}
         className="hidden"
       />
+
+      {/* Custom Sleek Glass Confirmation Dialog */}
+      <AnimatePresence>
+        {showDeleteConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 10 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 10 }}
+              className="w-full max-w-md bg-[#090b0f] border border-stone-800 rounded-2xl p-6 shadow-2xl text-left"
+            >
+              <div className="flex items-center gap-3.5 mb-4">
+                <div className="p-3 rounded-xl bg-red-500/10 text-red-500 border border-red-500/20">
+                  <Trash2 className="w-6 h-6 stroke-[1.5]" />
+                </div>
+                <div>
+                  <h3 className="text-base font-sans font-bold text-white uppercase tracking-wide">
+                    Confirm Deletion
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1 font-light">
+                    This action is irreversible.
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-300 font-light leading-relaxed mb-6">
+                Are you sure you want to permanently remove the selected <strong className="text-white font-semibold">{selectedVideoIds.length} video(s)</strong> from your local video locker?
+              </p>
+
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="px-4 py-2.5 rounded-xl border border-stone-800 text-slate-400 hover:text-white hover:bg-white/5 text-xs font-sans font-medium transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDelete}
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white text-xs font-sans font-bold transition-all active:scale-[98.5%] cursor-pointer shadow-lg shadow-red-500/10"
+                >
+                  Delete Permanently
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 };

@@ -30,7 +30,8 @@ import {
   PhoneCall,
   Menu,
   X,
-  LogOut
+  LogOut,
+  ArrowLeft
 } from "lucide-react"; 
 import { Track, VehicleInfo, DspSettings, Preset, VideoTrack } from "./types"; 
 import jsmediatags from "jsmediatags/dist/jsmediatags.min.js";
@@ -309,6 +310,39 @@ const BUILTIN_PRESETS: Preset[] = [
 
 export default function App() {   
   const [currentView, setCurrentView] = useState<"landing" | "auth" | "player" | "mymusic" | "myvideos" | "privacy" | "agreement" | "upgrade" | "ai_enhancement" | "ai_enhancement_audio" | "ai_enhancement_video" | "video">("landing");   
+  const [viewHistory, setViewHistory] = useState<string[]>([]);
+  const isGoingBackRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    if (isGoingBackRef.current) {
+      isGoingBackRef.current = false;
+      return;
+    }
+    setViewHistory((prev) => {
+      if (prev.length > 0 && prev[prev.length - 1] === currentView) {
+        return prev;
+      }
+      return [...prev, currentView];
+    });
+  }, [currentView]);
+
+  const handleGoBack = () => {
+    if (viewHistory.length > 1) {
+      isGoingBackRef.current = true;
+      const newHistory = [...viewHistory];
+      newHistory.pop(); // remove current view
+      const prevView = newHistory[newHistory.length - 1];
+      setViewHistory(newHistory);
+      setCurrentView(prevView as any);
+    } else {
+      if (isLoggedIn) {
+        setCurrentView("player");
+      } else {
+        setCurrentView("auth");
+      }
+    }
+  };
+
   const [subscriptionTier, setSubscriptionTier] = useState<"free" | "paid">(
     () => (localStorage.getItem("thumplayer_sub_tier") as "free" | "paid") || "free"
   );
@@ -707,7 +741,7 @@ export default function App() {
   useEffect(() => {     
     if (!authLoading) {
       if (!isLoggedIn) {       
-        const protectedViews = ["player", "mymusic", "upgrade", "ai_enhancement", "ai_enhancement_audio", "ai_enhancement_video", "video"];
+        const protectedViews = ["player", "mymusic", "myvideos", "upgrade", "ai_enhancement", "ai_enhancement_audio", "ai_enhancement_video", "video"];
         if (protectedViews.includes(currentView)) {
           setCurrentView("auth");
         }
@@ -990,6 +1024,62 @@ export default function App() {
       setIsMinimizedClosed(false);
     }
   }, [isPlaying]);   
+
+  // Global Keyboard Shortcuts for Music Player (Space, Arrow keys, M)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is inside a video view (which has its own shortcuts) or not logged in
+      if (!isLoggedIn || currentView === "video") {
+        return;
+      }
+
+      // Ignore if typing in fields
+      if (
+        document.activeElement?.tagName === "INPUT" ||
+        document.activeElement?.tagName === "TEXTAREA" ||
+        document.activeElement?.hasAttribute("contenteditable")
+      ) {
+        return;
+      }
+
+      switch (e.key) {
+        case " ":
+          e.preventDefault();
+          handlePlayPause();
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          handleBackwardSearch();
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          handleForwardSearch();
+          break;
+        case "m":
+        case "M":
+          e.preventDefault();
+          setIsMuted((prev) => !prev);
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          setIsMuted(false);
+          setVolume((prev) => Math.min(1, prev + 0.05));
+          break;
+        case "ArrowDown":
+          e.preventDefault();
+          setIsMuted(false);
+          setVolume((prev) => Math.max(0, prev - 0.05));
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isLoggedIn, currentView, isPlaying, isMuted, volume]);
 
   useEffect(() => {     
     if (audioRef.current) {       
@@ -1770,8 +1860,7 @@ export default function App() {
 
   const deleteSelectedTracks = async (trackIds: string[]) => {
     if (trackIds.length === 0) return;
-    const localIds = trackIds.filter(id => id.startsWith("local-"));
-    const dbTrackIds = trackIds.filter(id => id.startsWith("track_"));
+    const dbTrackIds = trackIds.filter(id => !id.startsWith("sample-"));
 
     for (const id of dbTrackIds) {
       try {
@@ -1785,7 +1874,7 @@ export default function App() {
     await refreshLocalMedia();
 
     setPlaylist((prev) => {
-      const remaining = prev.filter(t => !localIds.includes(t.id) && !dbTrackIds.includes(t.id));
+      const remaining = prev.filter(t => !dbTrackIds.includes(t.id));
       const currentPlayingTrack = prev[currentTrackIndex];
       if (currentPlayingTrack && trackIds.includes(currentPlayingTrack.id)) {
         stopSyntheticOsc();
@@ -2110,12 +2199,17 @@ export default function App() {
               exit={{ opacity: 0, y: -15, scale: 0.95 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
               style={{
-                background: "linear-gradient(135deg, #f9fafb 0%, #f3f4f6 15%, #e5e7eb 40%, #d1d5db 65%, #f3f4f6 85%, #9ca3af 100%)"
+                background: "conic-gradient(from 120deg at 50% 50%, rgba(248, 250, 252, 0.75), rgba(203, 213, 225, 0.75) 30deg, rgba(226, 232, 240, 0.75) 60deg, rgba(100, 116, 139, 0.75) 110deg, rgba(148, 163, 184, 0.75) 140deg, rgba(248, 250, 252, 0.75) 180deg, rgba(203, 213, 225, 0.75) 210deg, rgba(226, 232, 240, 0.75) 240deg, rgba(71, 85, 105, 0.75) 290deg, rgba(148, 163, 184, 0.75) 320deg, rgba(248, 250, 252, 0.75) 360deg)"
               }}
-              className="absolute left-0 mt-4 w-80 rounded-3xl border-2 border-stone-400 shadow-[0_25px_60px_rgba(0,0,0,0.45),inset_0_1px_2px_rgba(255,255,255,0.95)] overflow-hidden flex flex-col gap-1.5 p-4 z-[1102]"
+              className="absolute left-0 mt-4 w-80 rounded-3xl border-2 border-stone-400/90 shadow-[0_30px_70px_rgba(0,0,0,0.65),inset_0_1.5px_3px_rgba(255,255,255,0.95),inset_0_-6px_12px_rgba(0,0,0,0.4)] backdrop-blur-xl overflow-hidden flex flex-col gap-1.5 p-4 z-[1102]"
             >
+              {/* Fine microscopic lathe lines inside the dropdown backdrop for realistic brushed aluminum effect matching the bass booster knob */}
+              <div className="absolute inset-0 pointer-events-none rounded-3xl opacity-40" style={{ backgroundImage: "repeating-radial-gradient(circle at 50% 50%, transparent 0px, transparent 1.5px, rgba(255,255,255,0.1) 1.5px, rgba(255,255,255,0.1) 2px, transparent 2px, transparent 3.5px, rgba(0,0,0,0.15) 3.5px, rgba(0,0,0,0.15) 4px)" }} />
+              <div className="absolute inset-[3px] pointer-events-none rounded-[25px] border border-white/25" />
+              <div className="absolute inset-[10px] pointer-events-none rounded-[20px] border border-black/5" />
+
               {/* Logo at the top - scaled up */}
-              <div className="flex flex-col items-center justify-center py-5 border-b border-black/10 mb-2 px-4 bg-black/5 rounded-t-2xl gap-2.5">
+              <div className="relative z-10 flex flex-col items-center justify-center py-5 border-b border-black/10 mb-2 px-4 bg-black/5 rounded-t-2xl gap-2.5">
                 <img src="/logo.png" alt="" referrerPolicy="no-referrer" className="w-16 h-16 rounded-xl object-cover shadow-[0_4px_12px_rgba(0,0,0,0.15)] mb-1" />
                 <span className="text-lg font-sans font-extrabold tracking-[0.2em] text-stone-900 drop-shadow-[0_1px_1px_rgba(255,255,255,0.85)] select-none text-center">QUANTUMPLAYERAI</span>
                 {currentUser?.email === "jkoehler319@gmail.com" && (
@@ -2137,10 +2231,10 @@ export default function App() {
                   }
                   setIsOpen(false);
                 }}
-                className={`w-full text-left font-sans font-semibold uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-2 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
+                className={`relative z-10 w-full text-left font-sans font-extrabold uppercase tracking-widest text-[14px] sm:text-[15px] px-4 py-2 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
                   currentView === "player"
-                    ? "bg-black/10 border-2 border-stone-800 text-black shadow-[0_1px_4px_rgba(0,0,0,0.15)] font-bold"
-                    : "text-stone-800 hover:bg-black/5 hover:text-black hover:pl-5"
+                    ? "bg-black/15 border-2 border-stone-950 text-black shadow-[0_1px_4px_rgba(0,0,0,0.15)] font-black"
+                    : "text-stone-950 hover:bg-black/5 hover:text-black hover:pl-5"
                 }`}
               >
                 Audio Player
@@ -2156,10 +2250,10 @@ export default function App() {
                   }
                   setIsOpen(false);
                 }}
-                className={`w-full text-left font-sans font-semibold uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-2 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
+                className={`relative z-10 w-full text-left font-sans font-extrabold uppercase tracking-widest text-[14px] sm:text-[15px] px-4 py-2 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
                   currentView === "mymusic"
-                    ? "bg-black/10 border-2 border-stone-800 text-black shadow-[0_1px_4px_rgba(0,0,0,0.15)] font-bold"
-                    : "text-stone-800 hover:bg-[#eaeaea] hover:text-black hover:pl-5"
+                    ? "bg-black/15 border-2 border-stone-950 text-black shadow-[0_1px_4px_rgba(0,0,0,0.15)] font-black"
+                    : "text-stone-950 hover:bg-black/5 hover:text-black hover:pl-5"
                 }`}
               >
                 My music
@@ -2175,10 +2269,10 @@ export default function App() {
                   }
                   setIsOpen(false);
                 }}
-                className={`w-full text-left font-sans font-semibold uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-2 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
+                className={`relative z-10 w-full text-left font-sans font-extrabold uppercase tracking-widest text-[14px] sm:text-[15px] px-4 py-2 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
                   currentView === "ai_enhancement_audio"
-                    ? "bg-black/10 border-2 border-stone-800 text-black shadow-[0_1px_4px_rgba(0,0,0,0.15)] font-bold"
-                    : "text-stone-800 hover:bg-black/5 hover:text-black hover:pl-5"
+                    ? "bg-black/15 border-2 border-stone-950 text-black shadow-[0_1px_4px_rgba(0,0,0,0.15)] font-black"
+                    : "text-stone-950 hover:bg-black/5 hover:text-black hover:pl-5"
                 }`}
               >
                 Ai audio enhancement and optimizer
@@ -2194,10 +2288,10 @@ export default function App() {
                   }
                   setIsOpen(false);
                 }}
-                className={`w-full text-left font-sans font-semibold uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-2 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
+                className={`relative z-10 w-full text-left font-sans font-extrabold uppercase tracking-widest text-[14px] sm:text-[15px] px-4 py-2 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
                   currentView === "video"
-                    ? "bg-black/10 border-2 border-stone-800 text-black shadow-[0_1px_4px_rgba(0,0,0,0.15)] font-bold"
-                    : "text-stone-800 hover:bg-black/5 hover:text-black hover:pl-5"
+                    ? "bg-black/15 border-2 border-stone-950 text-black shadow-[0_1px_4px_rgba(0,0,0,0.15)] font-black"
+                    : "text-stone-950 hover:bg-black/5 hover:text-black hover:pl-5"
                 }`}
               >
                 4k Video Player
@@ -2213,10 +2307,10 @@ export default function App() {
                   }
                   setIsOpen(false);
                 }}
-                className={`w-full text-left font-sans font-semibold uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-2 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
+                className={`relative z-10 w-full text-left font-sans font-extrabold uppercase tracking-widest text-[14px] sm:text-[15px] px-4 py-2 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
                   currentView === "myvideos"
-                    ? "bg-black/10 border-2 border-stone-800 text-black shadow-[0_1px_4px_rgba(0,0,0,0.15)] font-bold"
-                    : "text-stone-800 hover:bg-black/5 hover:text-black hover:pl-5"
+                    ? "bg-black/15 border-2 border-stone-950 text-black shadow-[0_1px_4px_rgba(0,0,0,0.15)] font-black"
+                    : "text-stone-950 hover:bg-black/5 hover:text-black hover:pl-5"
                 }`}
               >
                 My videos
@@ -2232,10 +2326,10 @@ export default function App() {
                   }
                   setIsOpen(false);
                 }}
-                className={`w-full text-left font-sans font-semibold uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-2 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
+                className={`relative z-10 w-full text-left font-sans font-extrabold uppercase tracking-widest text-[14px] sm:text-[15px] px-4 py-2 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
                   currentView === "ai_enhancement_video"
-                    ? "bg-black/10 border-2 border-stone-800 text-black shadow-[0_1px_4px_rgba(0,0,0,0.15)] font-bold"
-                    : "text-stone-800 hover:bg-black/5 hover:text-black hover:pl-5"
+                    ? "bg-black/15 border-2 border-stone-950 text-black shadow-[0_1px_4px_rgba(0,0,0,0.15)] font-black"
+                    : "text-stone-950 hover:bg-black/5 hover:text-black hover:pl-5"
                 }`}
               >
                 Ai video enhancement and optimizer
@@ -2251,16 +2345,16 @@ export default function App() {
                   }
                   setIsOpen(false);
                 }}
-                className={`w-full text-left font-sans font-semibold uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-2 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
+                className={`relative z-10 w-full text-left font-sans font-extrabold uppercase tracking-widest text-[14px] sm:text-[15px] px-4 py-2 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
                   currentView === "upgrade"
-                    ? "bg-black/10 border-2 border-stone-800 text-black shadow-[0_1px_4px_rgba(0,0,0,0.15)] font-bold"
-                    : "text-stone-800 hover:bg-black/5 hover:text-black hover:pl-5"
+                    ? "bg-black/15 border-2 border-stone-950 text-black shadow-[0_1px_4px_rgba(0,0,0,0.15)] font-black"
+                    : "text-stone-950 hover:bg-black/5 hover:text-black hover:pl-5"
                 }`}
               >
                 Upgrade
               </button>
 
-              <div className="border-t border-black/10 my-1 mx-1" />
+              <div className="relative z-10 border-t border-black/10 my-1 mx-1" />
               
               <button
                 onClick={async () => {
@@ -2274,13 +2368,25 @@ export default function App() {
                   setIsOpen(false);
                   setCurrentView("landing");
                 }}
-                className="w-full text-left font-sans font-semibold uppercase tracking-widest text-[11px] sm:text-[12px] px-4 py-2 rounded-xl transition-all duration-100 text-red-700 hover:bg-red-500/10 border border-transparent cursor-pointer hover:pl-5 font-bold"
+                className="relative z-10 w-full text-left font-sans font-extrabold uppercase tracking-widest text-[14px] sm:text-[15px] px-4 py-2 rounded-xl transition-all duration-100 text-red-900 hover:bg-red-500/10 border border-transparent cursor-pointer hover:pl-5 font-black"
               >
                 Log Out
               </button>
             </motion.div>
           )}
         </AnimatePresence>
+      </div>
+
+      {/* Global Back Arrow Button - positioned right under the hamburger menu */}
+      <div id="global-back-container" className="fixed top-[88px] left-5 z-[1101] select-none">
+        <button
+          id="global-back-btn"
+          onClick={handleGoBack}
+          className="p-3.5 px-4.5 rounded-2xl border-2 bg-[#020512]/95 border-slate-800 text-slate-300 hover:text-white hover:border-slate-500 hover:scale-105 flex items-center justify-center transition-all duration-150 cursor-pointer shadow-[0_6px_20px_rgba(0,0,0,0.65)]"
+          title="Go Back"
+        >
+          <ArrowLeft className="w-5 h-5" />
+        </button>
       </div>
 
       {showAtomicExplosion && (         
@@ -2455,15 +2561,32 @@ export default function App() {
             <p className="mt-6 text-[12px] font-sans font-light text-slate-300 leading-relaxed bg-slate-950/65 p-6 rounded-2xl border border-slate-900 shadow-xl text-center tracking-wide max-w-md">
               Experience your music and videos like never before. Powered by advanced Gemini AI, QuantumPlayerAI instantly remasters your uploads, delivering ultra-crisp video upscaling and studio-grade audio optimization in real time. Take total control of your soundstage with a precision 5-band equalizer and tailored audio profiles optimized specifically for car audio, headphones, home audio, and immersive surround sound environments. Upload your files and let Gemini power your playback today.
             </p>             
-            <button               
-              onClick={() => {                 
-                if (currentUser) setCurrentView("player");                 
-                else setCurrentView("auth");               
-              }}               
-              className="mt-8 px-6 py-3 rounded-xl font-sans text-xs font-semibold tracking-widest uppercase cursor-pointer select-none bg-gradient-to-r from-slate-200/20 via-white/10 to-slate-400/25 border-2 border-slate-450 text-white shadow-[0_0_20px_rgba(255,255,255,0.15)] hover:from-white hover:via-slate-100 hover:to-slate-300 hover:text-stone-950 hover:border-white hover:shadow-[0_0_30px_rgba(255,255,255,0.45)] active:scale-95 duration-100 transition-all flex items-center gap-2"             
-            >               
-              {currentUser ? "Enter App" : "Log In"}             
-            </button>           
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mt-8">
+              <button               
+                onClick={() => {                 
+                  if (currentUser) setCurrentView("player");                 
+                  else setCurrentView("auth");               
+                }}               
+                className="px-6 py-3 rounded-xl font-sans text-xs font-semibold tracking-widest uppercase cursor-pointer select-none bg-gradient-to-r from-slate-200/20 via-white/10 to-slate-400/25 border-2 border-slate-450 text-white shadow-[0_0_20px_rgba(255,255,255,0.15)] hover:from-white hover:via-slate-100 hover:to-slate-300 hover:text-stone-950 hover:border-white hover:shadow-[0_0_30px_rgba(255,255,255,0.45)] active:scale-95 duration-100 transition-all flex items-center gap-2"             
+              >               
+                {currentUser ? "Enter App" : "Log In"}             
+              </button>
+
+              {currentUser && (
+                <button               
+                  onClick={async () => {                 
+                    try {
+                      await signOut(auth);
+                    } catch (err) {
+                      console.error("Error signing out:", err);
+                    }
+                  }}               
+                  className="px-6 py-3 rounded-xl font-sans text-xs font-semibold tracking-widest uppercase cursor-pointer select-none bg-red-950/20 border-2 border-red-500/30 text-red-400 hover:bg-red-500/25 hover:text-white hover:border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.15)] active:scale-95 duration-100 transition-all flex items-center gap-1.5"             
+                >               
+                  Log Out
+                </button>
+              )}
+            </div>           
           </div>           
           <footer className="w-full text-center mt-auto pt-6 border-t border-slate-900/60 flex flex-col sm:flex-row items-center justify-center gap-3 text-[10px] font-sans text-slate-400 uppercase tracking-widest pb-2">             
             <span className="opacity-60 text-[9px] tracking-wider">  2026 Studio Player</span>             
@@ -2490,7 +2613,7 @@ export default function App() {
                 <h1 className="text-sm font-semibold font-sans tracking-widest text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.5)] uppercase">                   
                   Privacy Policy                 
                 </h1>                 
-                <p className="text-[8px] font-sans text-slate-500 uppercase tracking-wider mt-0.5">Placeholder Host: https://quantumplayer.ai/privacy-policy</p>               
+                <p className="text-[8px] font-sans text-slate-500 uppercase tracking-wider mt-0.5">Placeholder Host: https://quantumplayerai.com/privacy-policy</p>               
               </div>             
             </div>             
             <div className="text-xs font-sans text-slate-300/90 leading-relaxed bg-slate-950/75 border border-slate-900 rounded-2xl p-5 shadow-2xl flex flex-col gap-4 overflow-y-auto max-h-[350px] font-light">               
@@ -2511,7 +2634,7 @@ export default function App() {
             </button>           
           </div>           
           <footer className="w-full text-center mt-auto pt-6 text-[9px] font-sans text-slate-500 uppercase tracking-widest">             
-            Placeholder Host Domain: https://quantumplayer.ai           
+            Placeholder Host Domain: https://quantumplayerai.com           
           </footer>         
         </div>       
       )}       
@@ -2526,7 +2649,7 @@ export default function App() {
                 <h1 className="text-sm font-semibold font-sans tracking-widest text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.5)] uppercase">                   
                   User Agreements                 
                 </h1>                 
-                <p className="text-[8px] font-sans text-slate-500 uppercase tracking-wider mt-0.5">Placeholder Host: https://quantumplayer.ai/user-agreement</p>               
+                <p className="text-[8px] font-sans text-slate-500 uppercase tracking-wider mt-0.5">Placeholder Host: https://quantumplayerai.com/user-agreement</p>               
               </div>             
             </div>             
             <div className="text-xs font-sans text-slate-300/90 leading-relaxed bg-[#020512]/90 border border-slate-800/80 rounded-2xl p-5 shadow-2xl flex flex-col gap-4 overflow-y-auto max-h-[350px] font-light">               
@@ -2545,7 +2668,7 @@ export default function App() {
             </button>           
           </div>           
           <footer className="w-full text-center mt-auto pt-6 text-[9px] font-sans text-slate-500 uppercase tracking-widest">             
-            Placeholder Host Domain: https://quantumplayer.ai           
+            Placeholder Host Domain: https://quantumplayerai.com           
           </footer>         
         </div>       
       )}       
@@ -2669,6 +2792,10 @@ export default function App() {
                 onBackToPlayer={() => {
                   setCurrentView("video");
                 }}
+                onNavigateToUpgrade={() => {
+                  setGlobalPremiumPrompt("Unlock advanced VIP AI Video tuning, upscaling, color profiles, and pre-calibrated cinema modes.");
+                  setCurrentView("upgrade");
+                }}
                 firestoreVideos={firestoreVideos}
                 selectedVideo={selectedVideo}
                 setSelectedVideo={setSelectedVideo}
@@ -2724,92 +2851,7 @@ export default function App() {
         </>
       )}
 
-      {/* Persistent Floating Minimized Music Player */}
-      {isAppBackgrounded && isPlaying && currentTrack && !isMinimizedClosed && (
-        <div 
-          id="minimized-persistent-dock"
-          className="fixed bottom-4 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:max-w-xl z-[2000] bg-[#070b19]/90 backdrop-blur-xl border border-white/10 rounded-2xl p-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.8)] flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-4 duration-300"
-        >
-          <div className="flex items-center justify-between gap-3">
-            {/* Clickable Area to Return to Full Player */}
-            <div 
-              id="minimized-track-info"
-              onClick={() => setCurrentView("player")}
-              className="flex items-center gap-3 cursor-pointer min-w-0 flex-1 group"
-            >
-              <div className="w-10 h-10 rounded-xl bg-slate-950/60 border border-white/5 flex items-center justify-center flex-shrink-0 relative overflow-hidden group-hover:border-white/20 transition-all">
-                <Music className={`w-4.5 h-4.5 text-slate-400 group-hover:text-emerald-400 transition-colors ${isPlaying ? "animate-pulse" : ""}`} />
-                {isPlaying && (
-                  <div className="absolute inset-0 bg-emerald-500/10 flex items-end justify-center gap-0.5 pb-1.5">
-                    <span className="w-0.5 bg-emerald-400 animate-[bounce_1s_infinite_100ms] rounded-full" style={{ height: '40%' }}></span>
-                    <span className="w-0.5 bg-emerald-400 animate-[bounce_1s_infinite_300ms] rounded-full" style={{ height: '70%' }}></span>
-                    <span className="w-0.5 bg-emerald-400 animate-[bounce_1s_infinite_200ms] rounded-full" style={{ height: '30%' }}></span>
-                  </div>
-                )}
-              </div>
-              <div className="flex flex-col min-w-0 text-left">
-                <span className="text-xs font-semibold text-white truncate font-sans group-hover:text-emerald-400 transition-all">
-                  {currentTrack.name}
-                </span>
-                <span className="text-[10px] text-slate-400 truncate font-sans font-light mt-0.5">
-                  {currentTrack.artist || "Unknown Artist"}
-                </span>
-              </div>
-            </div>
-
-            {/* Playback Controls */}
-            <div className="flex items-center gap-1.5" id="minimized-playback-controls">
-              <button
-                id="minimized-prev-btn"
-                onClick={(e) => { e.stopPropagation(); handlePrevTrack(); }}
-                className="p-2 rounded-xl bg-white/[0.02] hover:bg-white/10 text-slate-350 hover:text-white border border-white/5 transition-all active:scale-95 cursor-pointer"
-                title="Previous Track"
-              >
-                <SkipBack className="w-3.5 h-3.5" />
-              </button>
-              
-              <button
-                id="minimized-play-pause-btn"
-                onClick={(e) => { e.stopPropagation(); handlePlayPause(); }}
-                className="p-2.5 rounded-xl bg-white hover:bg-slate-200 text-stone-950 transition-all active:scale-90 hover:shadow-[0_0_12px_rgba(255,255,255,0.4)] cursor-pointer flex items-center justify-center"
-                title={isPlaying ? "Pause" : "Play"}
-              >
-                {isPlaying ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
-              </button>
-
-              <button
-                id="minimized-next-btn"
-                onClick={(e) => { e.stopPropagation(); handleNextTrack(); }}
-                className="p-2 rounded-xl bg-white/[0.02] hover:bg-white/10 text-slate-350 hover:text-white border border-white/5 transition-all active:scale-95 cursor-pointer"
-                title="Next Track"
-              >
-                <SkipForward className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            {/* Close/Dismiss Button with separator */}
-            <div className="border-l border-white/10 pl-2 ml-0.5" id="minimized-dismiss-wrapper">
-              <button
-                id="minimized-dismiss-btn"
-                onClick={handleCloseMinimized}
-                className="p-2 rounded-xl bg-white/[0.01] hover:bg-red-500/10 text-slate-455 hover:text-red-400 border border-white/5 hover:border-red-500/20 transition-all active:scale-95 cursor-pointer"
-                title="Exit Player"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-
-          {/* Inline Micro Progress Bar */}
-          <div className="w-full h-1 bg-white/[0.04] rounded-full overflow-hidden mt-1 relative" id="minimized-progress-container">
-            <div 
-              id="minimized-progress-bar"
-              className="h-full bg-gradient-to-r from-emerald-500 to-white shadow-[0_0_6px_rgba(255,255,255,0.5)] transition-all duration-300 rounded-full"
-              style={{ width: `${songDuration ? (songProgress / songDuration) * 100 : 0}%` }}
-            />
-          </div>
-        </div>
-      )}
+      {/* Minimized player disabled as requested */}
     </div>   
   ); 
 }

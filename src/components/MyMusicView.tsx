@@ -314,7 +314,8 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
           albumArtUrl: metadata.albumArtUrl || null,
           createdAt: new Date().toISOString(),
           url: `local-db://${trackId}`, // Standard URL protocol to trigger offline blob load
-          blob: file // Store raw file object inside IndexedDB directly!
+          blob: file, // Store raw file object inside IndexedDB directly!
+          uid: currentUser ? currentUser.uid : "guest"
         };
 
         // Write directly to IndexedDB local storage (bypass cloud, 100% local)

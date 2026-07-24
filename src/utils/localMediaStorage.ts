@@ -14,6 +14,7 @@ export interface LocalTrack {
   albumArtUrl: string | null;
   createdAt: string;
   blob: Blob;
+  uid?: string;
 }
 
 export interface LocalVideo {
@@ -25,6 +26,7 @@ export interface LocalVideo {
   thumbnail: string;
   createdAt: string;
   blob: Blob;
+  uid?: string;
 }
 
 export function openMediaDB(): Promise<IDBDatabase> {

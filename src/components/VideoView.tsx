@@ -80,8 +80,26 @@ interface FirestoreErrorInfo {
 }
 
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  let errMsg = "Unknown error";
+  if (error instanceof Error) {
+    errMsg = error.message;
+  } else if (typeof error === "string") {
+    errMsg = error;
+  } else if (error && typeof error === "object" && "message" in error) {
+    errMsg = String((error as any).message);
+  } else {
+    errMsg = String(error);
+  }
+
+  const lowerMsg = errMsg.toLowerCase();
+  const isQuotaError = lowerMsg.includes("quota") || 
+                       lowerMsg.includes("resource-exhausted") ||
+                       lowerMsg.includes("exhausted") ||
+                       lowerMsg.includes("exceeded") ||
+                       lowerMsg.includes("write stream");
+
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errMsg,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
@@ -96,16 +114,69 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     operationType,
     path
   };
+
+  if (isQuotaError) {
+    console.warn('Firestore Quota/Stream Limit Reached:', errMsg);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("firestore-error", { detail: errInfo }));
+    }
+    return;
+  }
+
   console.error('Firestore Error: ', JSON.stringify(errInfo));
 
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("firestore-error", { detail: errInfo }));
   }
-
-  throw new Error(JSON.stringify(errInfo));
 }
 
-const BUILTIN_VIDEOS: VideoTrack[] = [];
+const BUILTIN_VIDEOS: VideoTrack[] = [
+  {
+    id: "sample-1",
+    name: "Neon Night Highway Sweep",
+    creator: "Acoustic Car Club",
+    category: "Cinematic",
+    duration: "0:15",
+    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+    thumbnail: "https://images.unsplash.com/photo-1518173946687-a4c8a383392e?w=500&auto=format&fit=crop&q=80"
+  },
+  {
+    id: "sample-2",
+    name: "Subwoofer Cone Excursion Pattern",
+    creator: "Decibel Lab Tech",
+    category: "Acoustic Calibration",
+    duration: "0:15",
+    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
+    thumbnail: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=500&auto=format&fit=crop&q=80"
+  },
+  {
+    id: "sample-3",
+    name: "Vaporwave Retro Horizon Drive",
+    creator: "Studio Calibration Unit",
+    category: "Futuristic",
+    duration: "0:15",
+    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
+    thumbnail: "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=500&auto=format&fit=crop&q=80"
+  },
+  {
+    id: "sample-4",
+    name: "Deep Sea Sub-Bass Thermal Wave",
+    creator: "Oceanic Hydroacoustics",
+    category: "Acoustic Calibration",
+    duration: "0:15",
+    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
+    thumbnail: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&auto=format&fit=crop&q=80"
+  },
+  {
+    id: "sample-5",
+    name: "Cybernetic Laser Light Matrix",
+    creator: "RGB Laser Engineers",
+    category: "Cinematic",
+    duration: "0:15",
+    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4",
+    thumbnail: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80"
+  }
+];
 
 interface VideoViewProps {
   subscriptionTier: "free" | "paid";
@@ -337,7 +408,7 @@ export const VideoView: React.FC<VideoViewProps> = ({
     );
   }, [allVideosCombined, uploadedVideos, viewCategory, searchQuery]);
 
-  // Video Player Reference
+  // High Performance Native HTML5 Video Player Reference
   const videoRawRef = useRef<HTMLVideoElement>(null);
 
   // Interface State Machine
@@ -372,8 +443,7 @@ export const VideoView: React.FC<VideoViewProps> = ({
   useEffect(() => {
     const raw = videoRawRef.current;
     if (raw) {
-      raw.pause();
-      raw.load();
+      if (typeof raw.pause === "function") raw.pause();
       setIsPlaying(false);
       setProgress(0);
       setCurrentTime(0);
@@ -381,39 +451,53 @@ export const VideoView: React.FC<VideoViewProps> = ({
     setAiOptimizedFilters(null);
   }, [selectedVideo]);
 
-  // Synchronizer Event Hooks
-  useEffect(() => {
-    const raw = videoRawRef.current;
-    if (!raw) return;
-
-    const handlePlay = () => {
-      setIsPlaying(true);
-    };
-
-    const handlePause = () => {
-      setIsPlaying(false);
-    };
-
-    raw.addEventListener("play", handlePlay);
-    raw.addEventListener("pause", handlePause);
-
-    return () => {
-      raw.removeEventListener("play", handlePlay);
-      raw.removeEventListener("pause", handlePause);
-    };
-  }, [selectedVideo, customVideoUrl]);
-
   // Audio mute/unmute and volume bindings
   useEffect(() => {
     const raw = videoRawRef.current;
-    if (raw) raw.volume = isMuted ? 0 : volume;
-  }, [volume, isMuted, selectedVideo, customVideoUrl]);
+    if (raw) {
+      try {
+        raw.volume = isMuted ? 0 : volume;
+        raw.muted = isMuted;
+      } catch (e) {
+        console.warn("Volume set error:", e);
+      }
+    }
+  }, [volume, isMuted, selectedVideo, resolvedVideoUrl]);
 
   // Speed binding
   useEffect(() => {
     const raw = videoRawRef.current;
-    if (raw) raw.playbackRate = playbackSpeed;
-  }, [playbackSpeed, selectedVideo, customVideoUrl]);
+    if (raw) {
+      try {
+        raw.playbackRate = playbackSpeed;
+      } catch (e) {
+        console.warn("Playback rate error:", e);
+      }
+    }
+  }, [playbackSpeed, selectedVideo, resolvedVideoUrl]);
+
+  // Autoplay when resolved URL is ready
+  useEffect(() => {
+    const raw = videoRawRef.current;
+    if (raw && resolvedVideoUrl) {
+      try {
+        raw.volume = isMuted ? 0 : volume;
+        raw.muted = isMuted;
+        raw.playbackRate = playbackSpeed;
+        const playPromise = raw.play();
+        if (playPromise && typeof playPromise.catch === "function") {
+          playPromise
+            .then(() => setIsPlaying(true))
+            .catch((e: any) => {
+              console.log("Autoplay waiting for user interaction:", e);
+              setIsPlaying(false);
+            });
+        }
+      } catch (err) {
+        console.warn("Autoplay error:", err);
+      }
+    }
+  }, [resolvedVideoUrl]);
 
   // Play Pause Core Loop
   const handlePlayPause = () => {
@@ -421,10 +505,12 @@ export const VideoView: React.FC<VideoViewProps> = ({
     if (!raw) return;
 
     if (isPlaying) {
-      raw.pause();
+      if (typeof raw.pause === "function") raw.pause();
       setIsPlaying(false);
     } else {
-      raw.play().catch(e => console.log("Standard playback initialization issue:", e));
+      if (typeof raw.play === "function") {
+        raw.play()?.catch((e: any) => console.log("Native video play error:", e));
+      }
       setIsPlaying(true);
     }
   };
@@ -433,56 +519,67 @@ export const VideoView: React.FC<VideoViewProps> = ({
   const handleStop = () => {
     const raw = videoRawRef.current;
     if (raw) {
-      raw.pause();
-      raw.currentTime = 0;
+      if (typeof raw.pause === "function") raw.pause();
+      if ('currentTime' in raw) raw.currentTime = 0;
       setIsPlaying(false);
       setProgress(0);
       setCurrentTime(0);
     }
   };
 
-  // Track progress and update
+  // Track progress and update from native HTML5 video events
   const handleTimeUpdate = () => {
     const raw = videoRawRef.current;
     if (!raw) return;
-    setCurrentTime(raw.currentTime);
-    setProgress(raw.duration ? (raw.currentTime / raw.duration) * 100 : 0);
+    const cur = raw.currentTime || currentTime;
+    const dur = raw.duration || duration;
+    setCurrentTime(cur);
+    setProgress(dur ? (cur / dur) * 100 : 0);
   };
 
   const handleLoadedMetadata = () => {
     const raw = videoRawRef.current;
-    if (raw) {
-      setDuration(raw.duration || 0);
+    if (raw && raw.duration) {
+      setDuration(raw.duration);
     }
   };
 
   // Handle Seek Interaction
   const handleSeek = (percentage: number) => {
     const raw = videoRawRef.current;
-    if (!raw || !raw.duration || isNaN(raw.duration)) return;
+    const dur = (raw && raw.duration) || duration;
+    if (!dur || isNaN(dur)) return;
 
-    const targetTime = (percentage / 100) * raw.duration;
-    raw.currentTime = targetTime;
+    const targetTime = (percentage / 100) * dur;
+    if (raw && 'currentTime' in raw) {
+      raw.currentTime = targetTime;
+    }
     setProgress(percentage);
     setCurrentTime(targetTime);
   };
 
   const handleSkipBackward = () => {
     const raw = videoRawRef.current;
-    if (!raw) return;
-    const newTime = Math.max(0, raw.currentTime - 10);
-    raw.currentTime = newTime;
+    const cur = (raw && raw.currentTime !== undefined) ? raw.currentTime : currentTime;
+    const dur = (raw && raw.duration) || duration;
+    const newTime = Math.max(0, cur - 10);
+    if (raw && 'currentTime' in raw) {
+      raw.currentTime = newTime;
+    }
     setCurrentTime(newTime);
-    setProgress(raw.duration ? (newTime / raw.duration) * 100 : 0);
+    setProgress(dur ? (newTime / dur) * 100 : 0);
   };
 
   const handleSkipForward = () => {
     const raw = videoRawRef.current;
-    if (!raw) return;
-    const newTime = Math.min(raw.duration || 0, raw.currentTime + 10);
-    raw.currentTime = newTime;
+    const cur = (raw && raw.currentTime !== undefined) ? raw.currentTime : currentTime;
+    const dur = (raw && raw.duration) || duration;
+    const newTime = Math.min(dur || 0, cur + 10);
+    if (raw && 'currentTime' in raw) {
+      raw.currentTime = newTime;
+    }
     setCurrentTime(newTime);
-    setProgress(raw.duration ? (newTime / raw.duration) * 100 : 0);
+    setProgress(dur ? (newTime / dur) * 100 : 0);
   };
 
   // Playlist Navigation
@@ -705,7 +802,9 @@ export const VideoView: React.FC<VideoViewProps> = ({
       : "";
 
     return {
-      filter: `${filterStr} ${sharpnessEffect}`
+      filter: `${filterStr} ${sharpnessEffect}`,
+      transform: "translateZ(0)",
+      willChange: "transform, filter"
     };
   }, [colorEnhancement, upscaleTarget, turboMode, aiOptimizedFilters]);
 
@@ -775,23 +874,50 @@ export const VideoView: React.FC<VideoViewProps> = ({
                   } shadow-[0_15px_45px_rgba(0,0,0,0.85)]`
             }`}
           >
-            {/* High Performance AI Enhanced Video Player */}
+            {/* High Performance AI Enhanced Video Player Engine */}
             <div className="absolute inset-0 w-full h-full flex items-center justify-center overflow-hidden">
-              {selectedVideo ? (
+              {selectedVideo && resolvedVideoUrl ? (
                 <video
                   ref={videoRawRef}
-                  src={resolvedVideoUrl || undefined}
-                  loop
+                  title={selectedVideo.name || "Video Stream"}
+                  src={resolvedVideoUrl}
+                  preload="auto"
+                  loop={true}
                   muted={isMuted}
-                  onTimeUpdate={handleTimeUpdate}
-                  onLoadedMetadata={handleLoadedMetadata}
+                  playsInline
+                  crossOrigin="anonymous"
+                  onTimeUpdate={(e) => {
+                    const cur = e.currentTarget.currentTime;
+                    const dur = e.currentTarget.duration;
+                    if (typeof cur === "number" && !isNaN(cur)) {
+                      setCurrentTime(cur);
+                      if (dur) setProgress((cur / dur) * 100);
+                    }
+                  }}
+                  onLoadedMetadata={(e) => {
+                    const dur = e.currentTarget.duration;
+                    if (dur && typeof dur === "number" && !isNaN(dur)) {
+                      setDuration(dur);
+                    }
+                  }}
+                  onPlay={() => setIsPlaying(true)}
+                  onPause={() => setIsPlaying(false)}
+                  onEnded={() => handleNextVideo()}
+                  onError={(e) => {
+                    console.error("Video load error:", e);
+                    setIsPlaying(false);
+                  }}
                   style={enhancedStyles}
-                  className={`absolute inset-0 w-full h-full ${
+                  className={`w-full h-full rounded-2xl overflow-hidden ${
                     videoFit === "contain" ? "object-contain" :
                     videoFit === "fill" ? "object-fill" : "object-cover"
                   }`}
-                  playsInline
                 />
+              ) : selectedVideo ? (
+                <div className="flex flex-col items-center justify-center p-8 text-center text-stone-400 gap-3 w-full h-full bg-stone-950">
+                  <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
+                  <span className="text-xs font-sans text-stone-400 font-medium">Loading video stream...</span>
+                </div>
               ) : (
                 <div className="flex flex-col items-center justify-center p-8 text-center text-stone-400 gap-3 w-full h-full bg-stone-950">
                   <div className="w-14 h-14 rounded-full bg-[#140e0d]/80 border border-stone-850 flex items-center justify-center text-stone-500 shadow-inner">
@@ -1250,213 +1376,6 @@ export const VideoView: React.FC<VideoViewProps> = ({
 
             </div>
 
-          </div>
-
-          {/* DYNAMIC VIDEO HUB: FULL VIDEO CLOUD LOCKER */}
-          <div className="mt-4 pt-6 border-t border-stone-900/60 flex flex-col gap-5">
-            
-            {/* Header section with Stats */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div className="text-left">
-                <h3 className="font-sans text-[11px] font-bold uppercase tracking-widest text-slate-250 flex items-center gap-1.5">
-                  <Film className="w-4 h-4 text-stone-400" />
-                  Quantum Video Library
-                </h3>
-                <p className="font-sans text-[8px] text-stone-500 tracking-wide uppercase mt-0.5">
-                  Play and select interactive cabin media & scenic video loops
-                </p>
-              </div>
-              <div className="flex items-center gap-2 self-start md:self-auto bg-stone-950/60 px-3 py-1.5 rounded-xl border border-stone-900">
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-slate-300 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-slate-450"></span>
-                </span>
-                <span className="font-mono text-[9px] font-bold text-stone-400 uppercase tracking-wider">
-                  {uploadedVideos.length} Clips Available
-                </span>
-              </div>
-            </div>
-
-            {/* Filtering, Search & Swappers */}
-            <div className="flex flex-col gap-3">
-              {/* Search Bar */}
-              <div className="relative w-full">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-500">
-                  <Search className="w-3.5 h-3.5" />
-                </span>
-                <input
-                  type="text"
-                  placeholder="SEARCH VIDEO LOCKER BY NAME, CATEGORY, CREATOR..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-8 py-2 bg-stone-950 border border-stone-900 rounded-xl font-sans text-[9.5px] font-bold text-stone-300 placeholder-stone-600 focus:outline-none focus:border-stone-700 focus:text-white uppercase transition-colors"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery("")}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-500 hover:text-white font-sans text-[9px] uppercase font-bold"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-
-              {/* Category Tab Selector */}
-              <div className="flex items-center gap-1 overflow-x-auto pb-1.5 scrollbar-thin">
-                {([
-                  { id: "all", label: "All Videos" },
-                  { id: "personal", label: "My Locker" },
-                  { id: "futuristic", label: "Futuristic" },
-                  { id: "cinematic", label: "Cinematic" },
-                  { id: "abstract", label: "Abstract" }
-                ] as const).map((tab) => {
-                  const isSelected = viewCategory === tab.id;
-                  const count = tab.id === "all" ? allVideosCombined.length 
-                              : tab.id === "personal" ? uploadedVideos.length 
-                              : allVideosCombined.filter(v => v.category.toLowerCase() === tab.id).length;
-
-                  return (
-                    <button
-                      key={tab.id}
-                      onClick={() => setViewCategory(tab.id)}
-                      className={`px-3 py-1.5 rounded-lg border font-sans text-[8.5px] font-extrabold uppercase tracking-widest whitespace-nowrap transition-all cursor-pointer flex items-center gap-1 ${
-                        isSelected
-                          ? "bg-stone-300 text-stone-950 border-stone-300 font-black shadow-[0_2px_8px_rgba(255,255,255,0.08)]"
-                          : "bg-stone-950/60 text-stone-450 border-stone-900 hover:text-stone-300 hover:border-stone-800"
-                      }`}
-                    >
-                      {tab.label}
-                      <span className={`text-[7.5px] font-mono px-1 rounded-sm ${isSelected ? "bg-stone-950 text-stone-300" : "bg-stone-900 text-stone-500"}`}>
-                        {count}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Selection & Dynamic Batch-Deletes Section */}
-            {selectedVideoIds.length > 0 && (
-              <div className="flex items-center justify-between p-3 rounded-2xl bg-red-950/20 border border-red-900/30">
-                <span className="font-sans text-[8.5px] font-bold uppercase tracking-wider text-red-400">
-                  {selectedVideoIds.length} video(s) selected
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setSelectedVideoIds([])}
-                    className="px-2.5 py-1 rounded bg-stone-900 hover:bg-stone-850 text-stone-400 hover:text-stone-200 border border-stone-800 text-[8px] font-sans font-bold uppercase tracking-wider cursor-pointer"
-                  >
-                    Deselect All
-                  </button>
-                  <button
-                    onClick={handleBatchDelete}
-                    className="px-2.5 py-1 rounded bg-red-950/60 hover:bg-red-900/50 text-red-400 hover:text-red-300 border border-red-900/40 text-[8px] font-sans font-bold uppercase tracking-wider flex items-center gap-1 cursor-pointer"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    Delete Selected
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Video List Grid Container */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-              {filteredVideos.map((vid) => {
-                const isCustom = !BUILTIN_VIDEOS.some(b => b.id === vid.id);
-                const isSelected = selectedVideo?.id === vid.id;
-                const isChecked = selectedVideoIds.includes(vid.id);
-
-                return (
-                  <div
-                    key={vid.id}
-                    onClick={() => {
-                      setCustomVideoUrl(null);
-                      setSelectedVideo(vid);
-                      setIsPlaying(false);
-                      setProgress(0);
-                      setCurrentTime(0);
-                    }}
-                    className={`group relative text-left rounded-2xl overflow-hidden border p-1 bg-[#140e0d]/50 hover:bg-[#1c1412]/60 transition-all duration-200 cursor-pointer flex flex-col justify-between ${
-                      isSelected
-                        ? "border-slate-350 shadow-[0_0_15px_rgba(255,255,255,0.08)] bg-[#1c1412]/80"
-                        : "border-stone-900/60 hover:border-stone-800"
-                    }`}
-                  >
-                    {/* Thumbnail bezel */}
-                    <div className="relative aspect-video rounded-xl overflow-hidden mb-2 bg-stone-950">
-                      {vid.thumbnail ? (
-                        <img 
-                          src={vid.thumbnail} 
-                          alt="" 
-                          referrerPolicy="no-referrer"
-                          className="w-full h-full object-cover transition-all duration-300 group-hover:scale-105" 
-                        />
-                      ) : (
-                        <div className="w-full h-full flex flex-col items-center justify-center bg-stone-900 gap-1">
-                          <Film className="w-5 h-5 text-stone-600 animate-pulse" />
-                          <span className="text-[7px] font-sans font-bold text-stone-500 uppercase tracking-widest">
-                            RAW STREAM
-                          </span>
-                        </div>
-                      )}
-                      
-                      {/* Active Player Glow overlay */}
-                      {isSelected && (
-                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                          <span className="p-2 rounded-full bg-white/20 backdrop-blur-md border border-white/35">
-                            <Play className="w-3.5 h-3.5 text-white fill-white ml-0.5" />
-                          </span>
-                        </div>
-                      )}
-
-                      {/* Video Category Badge */}
-                      <span className="absolute top-1.5 left-1.5 font-sans text-[7px] font-bold text-slate-300 bg-black/60 px-1.5 py-0.5 rounded uppercase tracking-wider">
-                        {vid.category}
-                      </span>
-
-                      {/* Video Duration */}
-                      <span className="absolute bottom-1.5 right-1.5 font-mono text-[7px] text-slate-300 bg-black/75 px-1.5 rounded">
-                        {vid.duration}
-                      </span>
-
-                      {/* Checkbox for custom uploads */}
-                      {isCustom && (
-                        <button
-                          onClick={(e) => toggleSelectVideo(vid.id, e)}
-                          className="absolute top-1.5 right-1.5 p-1 rounded bg-black/60 border border-stone-800 hover:border-white/20 text-stone-400 hover:text-white transition-all"
-                        >
-                          {isChecked ? (
-                            <Check className="w-3.5 h-3.5 text-white" />
-                          ) : (
-                            <div className="w-3.5 h-3.5 rounded-sm border border-stone-450" />
-                          )}
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Metadata Content area */}
-                    <div className="px-1.5 pb-1.5 flex flex-col justify-between flex-grow">
-                      <div>
-                        <h4 className="font-sans text-[9px] font-extrabold text-stone-200 truncate group-hover:text-white transition-colors uppercase tracking-tight">
-                          {vid.name}
-                        </h4>
-                        <div className="flex items-center justify-between text-[7.5px] text-stone-500 uppercase tracking-wide mt-1">
-                          <span className="truncate max-w-[120px] flex items-center gap-1 font-sans">
-                            <User className="w-2.5 h-2.5 text-stone-650" />
-                            {vid.creator}
-                          </span>
-                          {isCustom && (
-                            <span className="font-sans text-[7.5px] text-stone-400 bg-stone-900 border border-stone-850 px-1 rounded-sm font-bold">
-                              Custom Sync
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
           </div>
 
         </div>

@@ -125,7 +125,7 @@ export const EqSliders: React.FC<EqSlidersProps> = ({
                   onChange={(e) => onChange(idx, parseInt(e.target.value))}
                   className="absolute cursor-ns-resize w-full h-full opacity-0 pointer-events-auto"
                   style={{
-                    writingMode: "bt-lr", // vertical fader support
+                    writingMode: "vertical-lr", // vertical fader support
                     WebkitAppearance: "slider-vertical",
                   }}
                   aria-label={`${band.label} gain fader`}

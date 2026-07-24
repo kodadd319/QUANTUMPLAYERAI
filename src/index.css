@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @theme {
@@ -12,6 +13,17 @@
   --color-mahogany-light: #4a1515;
   --color-mahogany-dark: #1e0505;
   --color-beige-leather: #faf7f2;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* 4K Global Rendering & Typography Smoothing */
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
 /* Custom premium Private Jet interior utilities */
@@ -35,7 +47,9 @@
     #64748b 100%
   ) 1;
   box-shadow: 
-    0 25px 50px rgba(0, 0, 0, 0.95),
+    0 1px 3px rgba(0, 0, 0, 0.4),
+    0 10px 30px rgba(0, 0, 0, 0.8),
+    0 30px 60px rgba(0, 0, 0, 0.95),
     inset 0 1.5px 4px rgba(255, 255, 255, 0.3);
 }
 
@@ -89,32 +103,32 @@
 }
 
 .candy-paint-body {
-  background-color: #1a0606;
+  background-color: #0b0202;
   background-image: 
     radial-gradient(
-      circle at 50% 30%,
-      rgba(90, 25, 25, 0.45) 0%,
-      rgba(35, 12, 12, 0.85) 50%,
-      rgba(10, 3, 3, 0.98) 100%
+      circle at 50% 25%,
+      rgba(160, 40, 40, 0.32) 0%,
+      rgba(35, 10, 10, 0.72) 45%,
+      rgba(8, 2, 2, 0.98) 100%
     ),
-    url('https://images.unsplash.com/photo-1541123437800-1bb1317badc2?auto=format&fit=crop&w=2400&q=90');
+    url('/mahogany_bg.jpg');
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
   background-attachment: fixed;
   background-blend-mode: multiply;
-  box-shadow: inset 0 0 100px rgba(74, 21, 21, 0.5);
+  box-shadow: inset 0 0 120px rgba(90, 20, 20, 0.45);
 }
 
 /* Luxury high-gloss coat that resembles multi-layer car paint/wood clearcoat */
 .candy-coat-layer {
   background: linear-gradient(
     135deg,
-    #320f0f 0%,
+    #3c1212 0%,
     #170505 50%,
-    #000000 100%
+    #050101 100%
   );
-  border: 2px solid;
+  border: 1.5px solid;
   border-image: linear-gradient(
     135deg,
     #ffffff 0%,
@@ -125,8 +139,9 @@
     #94a3b8 100%
   ) 1;
   box-shadow: 
-    0 15px 35px rgba(0, 0, 0, 0.9),
-    inset 0 1px 4px rgba(255, 255, 255, 0.25);
+    0 1px 3px rgba(0, 0, 0, 0.4),
+    0 12px 30px rgba(0, 0, 0, 0.85),
+    inset 0 1px 3px rgba(255, 255, 255, 0.2);
   position: relative;
 }
 
@@ -162,22 +177,24 @@
 }
 
 .chrome-panel-bezel {
-  background: linear-gradient(145deg, #120d0c 0%, #000000 100%);
-  border: 2.5px solid;
+  background: linear-gradient(145deg, #140d0c 0%, #030101 100%);
+  border: 1.5px solid;
   border-image: linear-gradient(
     135deg,
     #ffffff 0%,
-    #f8fafc 8%,
-    #cbd5e1 32%,
-    #475569 48%,
-    #ffffff 52%,
-    #334155 68%,
-    #e2e8f0 88%,
+    #f8fafc 10%,
+    #cbd5e1 35%,
+    #475569 50%,
+    #e2e8f0 65%,
+    #334155 80%,
+    #cbd5e1 90%,
     #ffffff 100%
   ) 1;
   box-shadow: 
-    0 25px 50px -12px rgba(0, 0, 0, 0.95),
-    inset 0 2px 4px rgba(255, 255, 255, 0.2);
+    0 1px 3px rgba(0, 0, 0, 0.4),
+    0 10px 30px rgba(0, 0, 0, 0.8),
+    0 35px 70px -15px rgba(0, 0, 0, 0.95),
+    inset 0 1px 3px rgba(255, 255, 255, 0.15);
 }
 
 .candy-fill-reflection {

@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { auth } from "../firebase";
+import { getVideoBlob } from "../utils/videoStorage";
 
 
 export interface VideoTrack {
@@ -127,11 +128,56 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
     }
   }, [allVideosCombined, selectedVideo, setSelectedVideo]);
 
+  // Video URL resolution state for IndexedDB local-db blobs
+  const [resolvedVideoUrl, setResolvedVideoUrl] = useState<string>("");
+  const localVideoUrlsRef = useRef<Record<string, string>>({});
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    const resolveUrl = async () => {
+      if (!selectedVideo || !selectedVideo.url) {
+        setResolvedVideoUrl("");
+        return;
+      }
+      const url = selectedVideo.url;
+      if (url.startsWith("local-db://")) {
+        const id = url.replace("local-db://", "");
+        if (localVideoUrlsRef.current[id]) {
+          setResolvedVideoUrl(localVideoUrlsRef.current[id]);
+          return;
+        }
+        try {
+          const blob = await getVideoBlob(id);
+          if (blob && isCurrent) {
+            const objectUrl = URL.createObjectURL(blob);
+            localVideoUrlsRef.current[id] = objectUrl;
+            setResolvedVideoUrl(objectUrl);
+          } else if (isCurrent) {
+            setResolvedVideoUrl("");
+          }
+        } catch (err) {
+          console.error("Error fetching video blob:", err);
+          if (isCurrent) setResolvedVideoUrl("");
+        }
+      } else {
+        setResolvedVideoUrl(url);
+      }
+    };
+
+    resolveUrl();
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [selectedVideo]);
+
   // Reset play preview on video change
   useEffect(() => {
     if (videoPreviewRef.current) {
-      videoPreviewRef.current.pause();
-      videoPreviewRef.current.load();
+      if (typeof videoPreviewRef.current.pause === "function") {
+        videoPreviewRef.current.pause();
+      }
       setIsPlayingPreview(false);
     }
   }, [selectedVideo]);
@@ -335,6 +381,8 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
         
       return {
         filter: `${filterStr} ${sharpnessEffect}`,
+        transform: "translateZ(0)",
+        willChange: "transform, filter",
         transition: "filter 0.4s cubic-bezier(0.16, 1, 0.3, 1)"
       };
     }
@@ -368,6 +416,8 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
 
     return {
       filter: `${filterStr} ${sharpnessEffect}`,
+      transform: "translateZ(0)",
+      willChange: "transform, filter",
       transition: "filter 0.4s cubic-bezier(0.16, 1, 0.3, 1)"
     };
   }, [colorEnhancement, upscaleTarget, turboMode, aiOptimizedFilters, isHoldingCompare, smartSharpness, backlightStabilizer]);
@@ -389,7 +439,7 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -15 }}
-      transition={{ duration: 0.4, cubicBezier: [0.16, 1, 0.3, 1] }}
+      transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
       className="flex flex-col gap-6 text-left select-none text-stone-200 p-1 md:p-3"
       id="ai-video-optimizer-container"
     >
@@ -978,14 +1028,18 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
 
             {/* Video Preview Bezel - Double-Din Automotive Styled */}
             <div className="relative aspect-video w-full rounded-2xl bg-black border border-stone-950 overflow-hidden shadow-2xl group ring-1 ring-white/5">
-              {selectedVideo ? (
+              {selectedVideo && resolvedVideoUrl ? (
                 <>
                   <video
                     ref={videoPreviewRef}
-                    src={selectedVideo.url}
-                    loop
-                    muted
+                    title={selectedVideo.name || "Preview Stream"}
+                    src={resolvedVideoUrl}
+                    preload="auto"
+                    loop={true}
+                    muted={true}
+                    autoPlay
                     playsInline
+                    crossOrigin="anonymous"
                     style={enhancedStyles}
                     className="w-full h-full object-cover transition-all"
                   />

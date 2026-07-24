@@ -21,7 +21,7 @@ export const BassKnob: React.FC<BassKnobProps> = ({
   const centerRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const isDraggingRef = useRef(false);
-  const startAngleRef = useRef(0);
+  const lastAngleRef = useRef(0);
   const startValueRef = useRef(value);
   const hasMovedRef = useRef(false);
   const startPointerPosRef = useRef({ x: 0, y: 0 });
@@ -54,7 +54,7 @@ export const BassKnob: React.FC<BassKnobProps> = ({
     setIsDragging(true);
     hasMovedRef.current = false;
     startPointerPosRef.current = { x: e.clientX, y: e.clientY };
-    startAngleRef.current = angle;
+    lastAngleRef.current = angle;
     startValueRef.current = valueRef.current;
   };
 
@@ -72,13 +72,16 @@ export const BassKnob: React.FC<BassKnobProps> = ({
       const dy = e.clientY - centerY;
       const currentAngle = Math.atan2(dx, -dy) * (180 / Math.PI);
 
-      let deltaAngle = currentAngle - startAngleRef.current;
+      let deltaAngle = currentAngle - lastAngleRef.current;
       if (deltaAngle > 180) deltaAngle -= 360;
       if (deltaAngle < -180) deltaAngle += 360;
 
+      // Update the last angle so the next frame is relative to this one
+      lastAngleRef.current = currentAngle;
+
       // Scale deltaAngle (270deg corresponds to max - min)
       const valueDelta = (deltaAngle / 270) * (max - min);
-      let nextVal = startValueRef.current + valueDelta;
+      let nextVal = valueRef.current + valueDelta;
 
       if (nextVal < min) nextVal = min;
       if (nextVal > max) nextVal = max;
@@ -207,6 +210,7 @@ export const BassKnob: React.FC<BassKnobProps> = ({
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
           onKeyDown={handleKeyDown}
           tabIndex={disabled ? -1 : 0}
           role="slider"

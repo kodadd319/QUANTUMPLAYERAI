@@ -282,7 +282,8 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
           duration: "0:30", // Placeholder. Resolved dynamically on player load
           thumbnail: thumbnail,
           createdAt: new Date().toISOString(),
-          blob: file // Store raw file object inside IndexedDB directly!
+          blob: file, // Store raw file object inside IndexedDB directly!
+          uid: currentUser ? currentUser.uid : "guest"
         };
 
         // Write directly to IndexedDB local storage (bypass cloud, 100% local)
@@ -310,10 +311,16 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
     }
   };
 
-  // Filter out built-in samples to get only user uploaded / scanned videos
+  // All uploaded and scanned videos
   const uploadedVideos = useMemo(() => {
-    return videos.filter(vid => !vid.id.startsWith("sample-"));
+    return videos;
   }, [videos]);
+
+  const handleSingleDelete = (videoId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setSelectedVideoIds([videoId]);
+    setShowDeleteConfirm(true);
+  };
 
   // Apply search query filter and sorting dynamically
   const filteredVideos = useMemo(() => {
@@ -749,6 +756,16 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
                           )}
                         </button>
 
+                        {/* Direct Delete button */}
+                        <button
+                          onClick={(e) => handleSingleDelete(vid.id, e)}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          title="Delete video"
+                          className="absolute top-3 right-3 p-1.5 rounded-lg bg-black/60 hover:bg-red-600/90 backdrop-blur-md border border-white/10 text-slate-300 hover:text-white z-10 transition-all duration-200 cursor-pointer opacity-80 sm:opacity-0 sm:group-hover:opacity-100 shadow-md"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+
                         {/* Duration tag */}
                         <span className="absolute bottom-3 right-3 px-2 py-0.5 rounded bg-black/70 text-[10px] font-mono font-semibold text-white tracking-wider">
                           {vid.duration}
@@ -822,6 +839,14 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
                               >
                                 {isSelectedForDel ? <CheckSquare className="w-4 h-4 text-emerald-400" /> : <Square className="w-4 h-4 text-slate-400" />}
                               </button>
+                              <button
+                                onClick={(e) => handleSingleDelete(vid.id, e)}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                title="Delete video"
+                                className="absolute top-3 right-3 p-1.5 rounded-lg bg-black/60 hover:bg-red-600/90 backdrop-blur-md border border-white/10 text-slate-300 hover:text-white z-10 transition-all duration-200 cursor-pointer opacity-80 sm:opacity-0 sm:group-hover:opacity-100 shadow-md"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
                               <span className="absolute bottom-3 right-3 px-2 py-0.5 rounded bg-black/70 text-[10px] font-mono text-white">
                                 {vid.duration}
                               </span>
@@ -889,6 +914,14 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
                                 }`}
                               >
                                 {isSelectedForDel ? <CheckSquare className="w-4 h-4 text-emerald-400" /> : <Square className="w-4 h-4 text-slate-400" />}
+                              </button>
+                              <button
+                                onClick={(e) => handleSingleDelete(vid.id, e)}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                title="Delete video"
+                                className="absolute top-3 right-3 p-1.5 rounded-lg bg-black/60 hover:bg-red-600/90 backdrop-blur-md border border-white/10 text-slate-300 hover:text-white z-10 transition-all duration-200 cursor-pointer opacity-80 sm:opacity-0 sm:group-hover:opacity-100 shadow-md"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
                               </button>
                               <span className="absolute bottom-3 right-3 px-2 py-0.5 rounded bg-black/70 text-[10px] font-mono text-white">
                                 {vid.duration}

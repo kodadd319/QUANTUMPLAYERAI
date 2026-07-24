@@ -52,9 +52,10 @@ import { motion, AnimatePresence } from "motion/react";
 // Firebase Integrations Block 
 import { auth, db, storage, googleProvider } from "./firebase"; 
 import { onAuthStateChanged, signOut, User } from "firebase/auth"; 
-import { doc, getDoc, setDoc, collection, addDoc, query, where, onSnapshot, deleteDoc } from "firebase/firestore"; 
+import { doc, getDoc, setDoc, collection, addDoc, query, where, onSnapshot, deleteDoc, getDocs } from "firebase/firestore"; 
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage"; 
 import { getLocalTracks, storeLocalTrack, deleteLocalTrack, getLocalVideos, storeLocalVideo, deleteLocalVideo } from "./utils/localMediaStorage"; 
+import { deleteVideoBlob } from "./utils/videoStorage"; 
 
 // Standard Operation Types for Firestore Hardened Audits 
 enum OperationType {   
@@ -68,11 +69,23 @@ enum OperationType {
 
 // Global Secure Firestore Error Handling Wrapper 
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {   
-  const errMsg = error instanceof Error ? error.message : String(error);
-  const isQuotaError = errMsg.toLowerCase().includes("quota exceeded") || 
-                       errMsg.toLowerCase().includes("resource-exhausted") ||
-                       errMsg.toLowerCase().includes("quota") ||
-                       errMsg.toLowerCase().includes("exceeded");
+  let errMsg = "Unknown error";
+  if (error instanceof Error) {
+    errMsg = error.message;
+  } else if (typeof error === "string") {
+    errMsg = error;
+  } else if (error && typeof error === "object" && "message" in error) {
+    errMsg = String((error as any).message);
+  } else {
+    errMsg = String(error);
+  }
+
+  const lowerMsg = errMsg.toLowerCase();
+  const isQuotaError = lowerMsg.includes("quota") || 
+                       lowerMsg.includes("resource-exhausted") ||
+                       lowerMsg.includes("exhausted") ||
+                       lowerMsg.includes("exceeded") ||
+                       lowerMsg.includes("write stream");
 
   const errPayload = {     
     error: errMsg,     
@@ -91,7 +104,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     path   };   
 
   if (isQuotaError) {
-    console.warn("Firestore Quota Exceeded. Safely failing back to offline / local IndexedDB state:", errMsg);
+    console.warn("Firestore Quota/Stream Limit Reached. Failing back to local state:", errMsg);
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("firestore-error", { detail: errPayload }));
     }
@@ -103,8 +116,6 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("firestore-error", { detail: errPayload }));
   }
-
-  throw new Error(JSON.stringify(errPayload)); 
 }
 
 // Pure JS ID3 parser helper using jsmediatags to extract tags safely client-side
@@ -430,39 +441,171 @@ export default function App() {
     operationType?: string | null;
   } | null>(null);
   const lastSavedSettingsRef = useRef<any>(null);
+  const syncTimerRef = useRef<any>(null);
 
-  const refreshLocalMedia = async () => {
+  const refreshLocalMedia = async (userToUse?: any) => {
     try {
+      const activeUser = userToUse !== undefined ? userToUse : currentUser;
       const dbTracks = await getLocalTracks();
-      const songs: Track[] = dbTracks.map((t) => ({
-        id: t.id,
-        name: t.name,
-        artist: t.artist,
-        album: t.album,
-        duration: t.duration,
-        genre: t.genre,
-        url: (t as any).path || (t as any).url || `local-db://${t.id}`,
-        imageUrl: t.imageUrl,
-        albumArtUrl: t.albumArtUrl || t.imageUrl || null,
-        file: t.blob ? new File([t.blob], t.name, { type: t.blob.type || "audio/mpeg" }) : undefined
-      }));
-      setFirestoreTracks(songs);
-
       const dbVideos = await getLocalVideos();
-      const vids = dbVideos.map((v) => ({
-        id: v.id,
-        name: v.name,
-        url: `local-db://${v.id}`,
-        duration: v.duration,
-        creator: v.creator,
-        category: v.category,
-        thumbnail: v.thumbnail,
-        createdAt: v.createdAt
-      }));
+
+      let songs: Track[] = [];
+      let vids: any[] = [];
+
+      if (activeUser) {
+        // 1. Fetch metadata from Firestore for user-scoped profile
+        const tracksQuery = query(collection(db, "tracks"), where("uid", "==", activeUser.uid));
+        const tracksSnap = await getDocs(tracksQuery);
+        const firestoreTracksList: any[] = [];
+        tracksSnap.forEach((doc) => {
+          firestoreTracksList.push({ id: doc.id, ...doc.data() });
+        });
+
+        const videosQuery = query(collection(db, "videos"), where("uid", "==", activeUser.uid));
+        const videosSnap = await getDocs(videosQuery);
+        const firestoreVideosList: any[] = [];
+        videosSnap.forEach((doc) => {
+          firestoreVideosList.push({ id: doc.id, ...doc.data() });
+        });
+
+        // 2. Map Firestore tracks and enrich with local Blobs if available
+        const localTracksMap = new Map(dbTracks.map((t) => [t.id, t]));
+        songs = firestoreTracksList.map((t) => {
+          const localTrack = localTracksMap.get(t.id);
+          return {
+            id: t.id,
+            name: t.name,
+            artist: t.artist || "Unknown Artist",
+            album: t.album || "Unknown Album",
+            duration: t.duration || 180,
+            genre: t.genre || "Bass Accent",
+            url: t.url || `local-db://${t.id}`,
+            imageUrl: t.imageUrl || "",
+            albumArtUrl: t.albumArtUrl || t.imageUrl || null,
+            file: localTrack?.blob ? new File([localTrack.blob], t.name, { type: localTrack.blob.type || "audio/mpeg" }) : undefined
+          };
+        });
+
+        // Self-healing: check if there are local tracks with activeUser.uid that are not yet in Firestore, and sync them
+        const syncedTrackIds = new Set(firestoreTracksList.map(t => t.id));
+        for (const localTrack of dbTracks) {
+          if (localTrack.uid === activeUser.uid && !syncedTrackIds.has(localTrack.id)) {
+            try {
+              await setDoc(doc(db, "tracks", localTrack.id), {
+                uid: activeUser.uid,
+                name: localTrack.name,
+                url: `local-db://${localTrack.id}`,
+                artist: localTrack.artist,
+                album: localTrack.album,
+                genre: localTrack.genre,
+                duration: localTrack.duration,
+                imageUrl: localTrack.imageUrl || "",
+                albumArtUrl: localTrack.albumArtUrl || null,
+                createdAt: localTrack.createdAt || new Date().toISOString()
+              });
+              console.log("Self-healing: synced local track to Firestore:", localTrack.id);
+              songs.push({
+                id: localTrack.id,
+                name: localTrack.name,
+                artist: localTrack.artist,
+                album: localTrack.album,
+                duration: localTrack.duration,
+                genre: localTrack.genre,
+                url: `local-db://${localTrack.id}`,
+                imageUrl: localTrack.imageUrl,
+                albumArtUrl: localTrack.albumArtUrl || localTrack.imageUrl || null,
+                file: new File([localTrack.blob], localTrack.name, { type: localTrack.blob.type || "audio/mpeg" })
+              });
+            } catch (err) {
+              console.error("Self-healing track sync error:", err);
+            }
+          }
+        }
+
+        // 3. Map Firestore videos and enrich with local Blobs if available
+        const localVideosMap = new Map(dbVideos.map((v) => [v.id, v]));
+        vids = firestoreVideosList.map((v) => {
+          const localVid = localVideosMap.get(v.id);
+          return {
+            id: v.id,
+            name: v.name,
+            url: `local-db://${v.id}`,
+            duration: v.duration || "Local File",
+            creator: v.creator || "Local Creator",
+            category: v.category || "Personal Video",
+            thumbnail: v.thumbnail || "",
+            createdAt: v.createdAt,
+            blob: localVid?.blob
+          };
+        });
+
+        // Self-healing: sync missing local videos to Firestore
+        const syncedVidIds = new Set(firestoreVideosList.map(v => v.id));
+        for (const localVid of dbVideos) {
+          if (localVid.uid === activeUser.uid && !syncedVidIds.has(localVid.id)) {
+            try {
+              await setDoc(doc(db, "videos", localVid.id), {
+                uid: activeUser.uid,
+                name: localVid.name,
+                url: `local-db://${localVid.id}`,
+                duration: localVid.duration,
+                creator: localVid.creator,
+                category: localVid.category,
+                thumbnail: localVid.thumbnail || "",
+                createdAt: localVid.createdAt || new Date().toISOString()
+              });
+              console.log("Self-healing: synced local video to Firestore:", localVid.id);
+              vids.push({
+                id: localVid.id,
+                name: localVid.name,
+                url: `local-db://${localVid.id}`,
+                duration: localVid.duration,
+                creator: localVid.creator,
+                category: localVid.category,
+                thumbnail: localVid.thumbnail,
+                createdAt: localVid.createdAt,
+                blob: localVid.blob
+              });
+            } catch (err) {
+              console.error("Self-healing video sync error:", err);
+            }
+          }
+        }
+      } else {
+        // Guest mode: only show tracks/videos with uid "guest" or empty/undefined
+        const guestTracks = dbTracks.filter((t) => !t.uid || t.uid === "guest");
+        songs = guestTracks.map((t) => ({
+          id: t.id,
+          name: t.name,
+          artist: t.artist,
+          album: t.album,
+          duration: t.duration,
+          genre: t.genre,
+          url: (t as any).path || (t as any).url || `local-db://${t.id}`,
+          imageUrl: t.imageUrl,
+          albumArtUrl: t.albumArtUrl || t.imageUrl || null,
+          file: t.blob ? new File([t.blob], t.name, { type: t.blob.type || "audio/mpeg" }) : undefined
+        }));
+
+        const guestVideos = dbVideos.filter((v) => !v.uid || v.uid === "guest");
+        vids = guestVideos.map((v) => ({
+          id: v.id,
+          name: v.name,
+          url: `local-db://${v.id}`,
+          duration: v.duration,
+          creator: v.creator,
+          category: v.category,
+          thumbnail: v.thumbnail,
+          createdAt: v.createdAt,
+          blob: v.blob
+        }));
+      }
+
+      setFirestoreTracks(songs);
       setFirestoreVideos(vids);
       return { songs, vids };
     } catch (err) {
-      console.error("Failed refreshing local media database:", err);
+      console.error("Failed refreshing media database:", err);
       return { songs: [], vids: [] };
     }
   };
@@ -694,7 +837,7 @@ export default function App() {
           }
         });         
         // Unconditionally refresh local media from IndexedDB
-        refreshLocalMedia();
+        refreshLocalMedia(user);
 
         return () => {           
           unsubscribeSettings();           
@@ -733,6 +876,7 @@ export default function App() {
           subCrossoverHz: 80,
           justification: "ElitePlayer setup loaded. Select your vehicle cabin size, your trunk speaker box gear, and slam that AI Sound Optimization button! We'll formulate a premium street-competition DSP profile tailored specifically for your ride."
         });
+        refreshLocalMedia(null);
       }     
     });     
     return () => unsubscribeAuth();   
@@ -962,34 +1106,6 @@ export default function App() {
     }
   }, [currentTrack]);
 
-  // Automatic routing when returning to app from background
-  useEffect(() => {
-    const handleReturnToApp = () => {
-      // If there's an active track, we are not viewing the player page, and it's not dismissed
-      // Do not automatically redirect if the user is on the mymusic or video view (such as after file uploads)
-      if (currentTrack && currentView !== "player" && currentView !== "mymusic" && currentView !== "video" && !isMinimizedClosed) {
-        setCurrentView("player");
-      }
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        handleReturnToApp();
-      }
-    };
-
-    const handleWindowFocus = () => {
-      handleReturnToApp();
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("focus", handleWindowFocus);
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("focus", handleWindowFocus);
-    };
-  }, [currentTrack, currentView, isMinimizedClosed]);
-
   // Synchronize app background status (navigating out of the app / blur / focus / call overlays)
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -1133,10 +1249,32 @@ export default function App() {
         imageUrl: metadata.imageUrl || "https://images.unsplash.com/photo-1545454675-3531b543be5d?w=500&auto=format&fit=crop&q=80",
         albumArtUrl: metadata.albumArtUrl || null,
         createdAt: new Date().toISOString(),
-        blob: file
+        blob: file,
+        uid: currentUser ? currentUser.uid : "guest"
       };
 
       await storeLocalTrack(localTrackRecord);
+
+      if (currentUser) {
+        try {
+          await setDoc(doc(db, "tracks", trackId), {
+            uid: currentUser.uid,
+            name: localTrackRecord.name,
+            url: `local-db://${trackId}`,
+            artist: localTrackRecord.artist,
+            album: localTrackRecord.album,
+            genre: localTrackRecord.genre,
+            duration: localTrackRecord.duration,
+            imageUrl: localTrackRecord.imageUrl || "",
+            albumArtUrl: localTrackRecord.albumArtUrl || null,
+            createdAt: localTrackRecord.createdAt
+          });
+          console.log("Track metadata successfully synced to Firestore for user:", currentUser.uid);
+        } catch (fsErr) {
+          console.error("Firestore save error for track:", fsErr);
+        }
+      }
+
       setUploadProgress(100);
 
       // 4. Success Finalization Flags reset
@@ -1203,10 +1341,30 @@ export default function App() {
             category: "Personal Video",
             thumbnail: videoMetadata.thumbnail || "", // Save empty string if no frame so fallback works
             createdAt: new Date().toISOString(),
-            blob: file
+            blob: file,
+            uid: currentUser ? currentUser.uid : "guest"
           };
 
           await storeLocalVideo(videoData);
+
+          if (currentUser) {
+            try {
+              await setDoc(doc(db, "videos", videoId), {
+                uid: currentUser.uid,
+                name: videoData.name,
+                url: `local-db://${videoId}`,
+                duration: videoData.duration,
+                creator: videoData.creator,
+                category: videoData.category,
+                thumbnail: videoData.thumbnail || "",
+                createdAt: videoData.createdAt
+              });
+              console.log("Video metadata successfully synced to Firestore for user:", currentUser.uid);
+            } catch (fsErr) {
+              console.error("Firestore save error for video:", fsErr);
+            }
+          }
+
           if (!firstUploadedTrackId) {
             firstUploadedTrackId = videoId;
           }
@@ -1240,10 +1398,32 @@ export default function App() {
             imageUrl: metadata.imageUrl || "", // empty if no artwork
             albumArtUrl: metadata.albumArtUrl || null,
             createdAt: new Date().toISOString(),
-            blob: file
+            blob: file,
+            uid: currentUser ? currentUser.uid : "guest"
           };
 
           await storeLocalTrack(localTrackRecord);
+
+          if (currentUser) {
+            try {
+              await setDoc(doc(db, "tracks", trackId), {
+                uid: currentUser.uid,
+                name: localTrackRecord.name,
+                url: `local-db://${trackId}`,
+                artist: localTrackRecord.artist,
+                album: localTrackRecord.album,
+                genre: localTrackRecord.genre,
+                duration: localTrackRecord.duration,
+                imageUrl: localTrackRecord.imageUrl || "",
+                albumArtUrl: localTrackRecord.albumArtUrl || null,
+                createdAt: localTrackRecord.createdAt
+              });
+              console.log("Track metadata successfully synced to Firestore for user:", currentUser.uid);
+            } catch (fsErr) {
+              console.error("Firestore save error for track:", fsErr);
+            }
+          }
+
           if (!firstUploadedTrackId) {
             firstUploadedTrackId = trackId;
           }
@@ -1430,25 +1610,32 @@ export default function App() {
         ...currentSettings
       };
       
-      // If Firestore database quota is exceeded, bypass the write operation completely to avoid console spam or SDK crash
+      // If Firestore database quota is exceeded, bypass the write operation completely
       if (quotaError) {
-        console.warn("Firestore Quota Exceeded. Skipping remote settings synchronization. Preferences safely saved in local storage.");
+        console.warn("Firestore Quota Exceeded. Skipping remote settings synchronization.");
         return;
       }
       
-      const userDocRef = doc(db, "users", currentUser.uid);
-      setDoc(userDocRef, {
-        ...currentSettings,
-        uid: currentUser.uid,
-        updatedAt: new Date().toISOString()
-      }, { merge: true })
-        .then(() => {
-          console.log("Automatically synchronized updated configurations to database.");
-        })
-        .catch((err) => {
-          console.error("Auto configuration sync error:", err);
-          handleFirestoreError(err, OperationType.WRITE, `users/${currentUser.uid}`);
-        });
+      // Debounce the remote write to prevent write stream queue exhaustion
+      if (syncTimerRef.current) {
+        clearTimeout(syncTimerRef.current);
+      }
+
+      syncTimerRef.current = setTimeout(() => {
+        const userDocRef = doc(db, "users", currentUser.uid);
+        setDoc(userDocRef, {
+          ...currentSettings,
+          uid: currentUser.uid,
+          updatedAt: new Date().toISOString()
+        }, { merge: true })
+          .then(() => {
+            console.log("Automatically synchronized updated configurations to database.");
+          })
+          .catch((err) => {
+            console.warn("Auto configuration sync caught issue:", err);
+            handleFirestoreError(err, OperationType.WRITE, `users/${currentUser.uid}`);
+          });
+      }, 2000);
     }
   }, [
     isLoggedIn,
@@ -1808,7 +1995,8 @@ export default function App() {
     }     
     try {       
       await deleteDoc(doc(db, "tracks", track.id));       
-      console.log("Track safely wiped from Firestore:", track.id);       
+      await deleteLocalTrack(track.id);
+      console.log("Track safely wiped from Firestore and local storage:", track.id);       
       if (currentTrackIndex === idx) {         
         stopSyntheticOsc();         
         setIsPlaying(false);         
@@ -1818,6 +2006,11 @@ export default function App() {
         setCurrentTrackIndex(currentTrackIndex - 1);       
       }     
     } catch (err) {       
+      try {
+        await deleteLocalTrack(track.id);
+      } catch (localErr) {
+        console.error("Local track delete fallback failed:", localErr);
+      }
       handleFirestoreError(err, OperationType.DELETE, `tracks/${track.id}`);     
     }   
   };   
@@ -1866,6 +2059,14 @@ export default function App() {
       try {
         await deleteLocalTrack(id);
         console.log("Deleted local IndexedDB track successfully:", id);
+        if (currentUser) {
+          try {
+            await deleteDoc(doc(db, "tracks", id));
+            console.log("Deleted remote Firestore track successfully:", id);
+          } catch (remErr) {
+            console.error("Failed to delete remote Firestore track:", id, remErr);
+          }
+        }
       } catch (err) {
         console.error("Failed deleting local track:", id, err);
       }
@@ -1890,19 +2091,38 @@ export default function App() {
   };   
 
   const deleteSelectedVideos = async (videoIds: string[]) => {
-    if (videoIds.length === 0) return;
+    if (!videoIds || videoIds.length === 0) return;
+
+    // 1. Optimistically update local state so the video vanishes immediately from UI
+    setFirestoreVideos(prev => prev.filter(v => !videoIds.includes(v.id)));
+
+    // 2. Clear selected video if it's currently selected
+    if (selectedVideo && videoIds.includes(selectedVideo.id)) {
+      setSelectedVideo(null);
+    }
+
+    // 3. Delete from IndexedDB and Firestore
     for (const id of videoIds) {
       try {
         await deleteLocalVideo(id);
+        await deleteVideoBlob(id);
         console.log("Deleted local IndexedDB video successfully:", id);
       } catch (err) {
         console.error("Failed deleting local video:", id, err);
       }
+
+      if (currentUser) {
+        try {
+          await deleteDoc(doc(db, "videos", id));
+          console.log("Deleted remote Firestore video successfully:", id);
+        } catch (remErr) {
+          console.warn("Firestore delete video warning:", id, remErr);
+        }
+      }
     }
+
+    // 4. Re-sync media state
     await refreshLocalMedia();
-    if (selectedVideo && videoIds.includes(selectedVideo.id)) {
-      setSelectedVideo(null);
-    }
   };
 
   const handleEqValueChange = (bandIdx: number, newGainDb: number) => {     
@@ -2210,7 +2430,13 @@ export default function App() {
 
               {/* Logo at the top - scaled up */}
               <div className="relative z-10 flex flex-col items-center justify-center py-5 border-b border-black/10 mb-2 px-4 bg-black/5 rounded-t-2xl gap-2.5">
-                <img src="/logo.png" alt="" referrerPolicy="no-referrer" className="w-16 h-16 rounded-xl object-cover shadow-[0_4px_12px_rgba(0,0,0,0.15)] mb-1" />
+                <img 
+                  src="/logo.png" 
+                  alt="QUANTUMPLAYERAI Logo" 
+                  referrerPolicy="no-referrer" 
+                  onError={(e) => { e.currentTarget.src = "/icon.png"; }}
+                  className="w-16 h-16 rounded-xl object-cover shadow-[0_4px_12px_rgba(0,0,0,0.15)] mb-1" 
+                />
                 <span className="text-lg font-sans font-extrabold tracking-[0.2em] text-stone-900 drop-shadow-[0_1px_1px_rgba(255,255,255,0.85)] select-none text-center">QUANTUMPLAYERAI</span>
                 {currentUser?.email === "jkoehler319@gmail.com" && (
                   <div className="flex flex-col items-center gap-1 bg-amber-500/15 border border-amber-600/30 p-2.5 rounded-2xl w-full text-center shadow-[0_0_10px_rgba(0,0,0,0.05)]">
@@ -2470,7 +2696,13 @@ export default function App() {
       )}       <audio ref={audioRef} className="hidden" />       
 
       <div className="flex items-center justify-center gap-2 mt-4 mb-2">
-        <img src="/logo.png" alt="" referrerPolicy="no-referrer" className="w-5 h-5 rounded object-cover shadow-[0_0_6px_rgba(255,255,255,0.2)]" />
+        <img 
+          src="/logo.png" 
+          alt="QUANTUMPLAYERAI Logo" 
+          referrerPolicy="no-referrer" 
+          onError={(e) => { e.currentTarget.src = "/icon.png"; }}
+          className="w-5 h-5 rounded object-cover shadow-[0_0_6px_rgba(255,255,255,0.2)]" 
+        />
         <span className="text-base font-sans font-semibold tracking-[0.25em] text-white select-none block drop-shadow-[0_0_12px_rgba(255,255,255,0.4)]">QUANTUMPLAYERAI</span>
       </div>
 
@@ -2521,7 +2753,13 @@ export default function App() {
         <div id="auth-loading-screen" className="flex-1 w-full max-w-xl mx-auto px-4 py-8 flex flex-col justify-center items-center min-h-screen relative z-30">
           <div className="text-center p-8 bg-stone-950/95 border-2 border-white/40 rounded-[2rem] shadow-[0_0_50px_rgba(255,255,255,0.18)] max-w-sm w-full mx-auto select-none backdrop-blur-md">
             <div className="flex flex-col items-center justify-center gap-3 mb-6 animate-pulse">
-              <img src="/logo.png" alt="" referrerPolicy="no-referrer" className="w-12 h-12 rounded-xl object-cover shadow-[0_0_10px_rgba(255,255,255,0.3)] animate-pulse" />
+              <img 
+                src="/logo.png" 
+                alt="QUANTUMPLAYERAI Logo" 
+                referrerPolicy="no-referrer" 
+                onError={(e) => { e.currentTarget.src = "/icon.png"; }}
+                className="w-12 h-12 rounded-xl object-cover shadow-[0_0_10px_rgba(255,255,255,0.3)] animate-pulse" 
+              />
               <span className="text-base font-sans font-semibold tracking-[0.25em] text-white select-none">QUANTUMPLAYERAI</span>
             </div>
             
@@ -2552,6 +2790,7 @@ export default function App() {
                 src="/logo.png" 
                 alt="QUANTUMPLAYERAI Logo" 
                 referrerPolicy="no-referrer"
+                onError={(e) => { e.currentTarget.src = "/icon.png"; }}
                 className="w-full h-auto aspect-square rounded-3xl object-cover transition-transform duration-500 group-hover:scale-105 shadow-[0_15px_40px_rgba(0,0,0,0.8)]"
               />
             </div>             
@@ -2703,7 +2942,7 @@ export default function App() {
                     </div>                 
                     <h3 className="font-sans text-[11px] font-semibold uppercase tracking-widest text-[#cbd5e1] mb-6 flex items-center gap-1.5 z-10 chrome-text">                   
                       <Activity className="w-3.5 h-3.5 text-blue-500 animate-pulse" />                   
-                      Slammer Bass Booster                 
+                      Bass Boost                 
                     </h3>                 
                     <BassKnob value={dspSettings.bassBoost} onChange={handleBassKnobChange} />               
                   </div>               
@@ -2828,7 +3067,7 @@ export default function App() {
                 uploadError={uploadError}
                 uploadSuccess={uploadSuccess}
                 onUploadVideos={handleFileUpload}
-                onRefreshVideos={refreshLocalMedia}
+                onRefreshVideos={async () => { await refreshLocalMedia(); }}
                 selectedVideo={selectedVideo}
                 setSelectedVideo={setSelectedVideo}
                 activeModel={activeModel}

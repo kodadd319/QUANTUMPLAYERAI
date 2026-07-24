@@ -32,9 +32,27 @@ export interface FirestoreErrorInfo {
 }
 
 // Core Firestore Error Handler
-export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): void {
+  let errMsg = "Unknown error";
+  if (error instanceof Error) {
+    errMsg = error.message;
+  } else if (typeof error === "string") {
+    errMsg = error;
+  } else if (error && typeof error === "object" && "message" in error) {
+    errMsg = String((error as any).message);
+  } else {
+    errMsg = String(error);
+  }
+
+  const lowerMsg = errMsg.toLowerCase();
+  const isQuotaError = lowerMsg.includes("quota") || 
+                       lowerMsg.includes("resource-exhausted") ||
+                       lowerMsg.includes("exhausted") ||
+                       lowerMsg.includes("exceeded") ||
+                       lowerMsg.includes("write stream");
+
   const errPayload: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errMsg,
     authInfo: {
       userId: auth.currentUser?.uid || null,
       email: auth.currentUser?.email || null,
@@ -49,13 +67,20 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path
   };
+
+  if (isQuotaError) {
+    console.warn("Firestore Quota/Stream Limit Reached:", errMsg);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("firestore-error", { detail: errPayload }));
+    }
+    return;
+  }
+
   console.error("Firestore Ingestion/Security Error Caught:", JSON.stringify(errPayload, null, 2));
 
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("firestore-error", { detail: errPayload }));
   }
-
-  throw new Error(JSON.stringify(errPayload));
 }
 
 // Track Schema conforming to types.ts

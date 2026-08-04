@@ -56,6 +56,7 @@ import { doc, getDoc, setDoc, collection, addDoc, query, where, onSnapshot, dele
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage"; 
 import { getLocalTracks, storeLocalTrack, deleteLocalTrack, getLocalVideos, storeLocalVideo, deleteLocalVideo } from "./utils/localMediaStorage"; 
 import { deleteVideoBlob } from "./utils/videoStorage"; 
+import { isAdminUserEmail, getAdminEmailDisplay } from "./utils/admin"; 
 
 // Standard Operation Types for Firestore Hardened Audits 
 enum OperationType {   
@@ -360,7 +361,7 @@ export default function App() {
   // Shared AI Video states
   const [selectedVideo, setSelectedVideo] = useState<VideoTrack | null>(null);
   const [activeModel, setActiveModel] = useState<"quantum-scale" | "deep-cinema" | "chroma-hdr">("quantum-scale");
-  const [upscaleTarget, setUpscaleTarget] = useState<"HD" | "2K" | "4K" | "8K">("4K");
+  const [upscaleTarget, setUpscaleTarget] = useState<"HD" | "2K" | "4K" | "8K">("8K");
   const [colorEnhancement, setColorEnhancement] = useState<"hdr" | "vivid" | "lowlight" | "crisp" | "none">("hdr");
   const [smoothMotion, setSmoothMotion] = useState<boolean>(true);
   const [turboMode, setTurboMode] = useState<boolean>(false);
@@ -421,6 +422,8 @@ export default function App() {
   const syntheticIntervalRef = useRef<any>(null);
   const [engineReady, setEngineReady] = useState(false);   
   const [currentUser, setCurrentUser] = useState<User | null>(null);   
+  // Permanently unlock all premium features and entitlements for administrator account (jtothek319@gmail.com / jkoehler319@gmail.com)
+  const effectiveSubscriptionTier: "free" | "paid" = (isAdminUserEmail(currentUser?.email) || subscriptionTier === "paid") ? "paid" : "free";
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [authLoading, setAuthLoading] = useState<boolean>(true);   
   const [firestoreTracks, setFirestoreTracks] = useState<Track[]>([]);   
@@ -706,8 +709,8 @@ export default function App() {
               setShuffleMode(data.shuffleMode);
             }
             if (data.subscriptionTier) {
-              setSubscriptionTier((user.email === "jkoehler319@gmail.com" ? "paid" : data.subscriptionTier) as "free" | "paid");
-            } else if (user.email === "jkoehler319@gmail.com") {
+              setSubscriptionTier((isAdminUserEmail(user.email) ? "paid" : data.subscriptionTier) as "free" | "paid");
+            } else if (isAdminUserEmail(user.email)) {
               setSubscriptionTier("paid");
             }
             if (data.currentTrackId !== undefined) {
@@ -749,7 +752,7 @@ export default function App() {
               isMuted: false,
               repeatMode: "all" as const,
               shuffleMode: false,
-              subscriptionTier: (user.email === "jkoehler319@gmail.com" ? "paid" : "free") as "free" | "paid",
+              subscriptionTier: (isAdminUserEmail(user.email) ? "paid" : "free") as "free" | "paid",
               currentTrackId: null,
               selectedPresetName: "Hip hop",
               customEqBands: null,
@@ -770,12 +773,14 @@ export default function App() {
               }
             };
             lastSavedSettingsRef.current = initialData;
-            setSubscriptionTier(user.email === "jkoehler319@gmail.com" ? "paid" : "free");
-            setDoc(userDocRef, initialData, { merge: true })
-              .catch(err => handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`));           
+            setSubscriptionTier(isAdminUserEmail(user.email) ? "paid" : "free");
+            if (auth.currentUser && auth.currentUser.uid === user.uid) {
+              setDoc(userDocRef, initialData, { merge: true })
+                .catch(err => console.warn("Failed to create user doc in Firestore:", err));
+            }           
           }         
         }, (err) => {           
-          handleFirestoreError(err, OperationType.GET, `users/${user.uid}`);         
+          console.warn("Firestore settings subscription notice:", err);         
           // Fallback to localStorage cached user settings when Firestore is offline or quota exceeded
           try {
             const cached = localStorage.getItem("quantumplayer_user_settings");
@@ -794,7 +799,7 @@ export default function App() {
               }
               if (data.repeatMode) setRepeatMode(data.repeatMode);
               if (typeof data.shuffleMode === "boolean") setShuffleMode(data.shuffleMode);
-              if (data.subscriptionTier) setSubscriptionTier(data.subscriptionTier);
+              if (data.subscriptionTier) setSubscriptionTier(isAdminUserEmail(user.email) ? "paid" : data.subscriptionTier);
               if (data.currentTrackId !== undefined) setLoadedTrackId(data.currentTrackId);
               if (data.selectedPresetName) setSelectedPresetName(data.selectedPresetName);
               if (data.customEqBands !== undefined) setCustomEqBands(data.customEqBands);
@@ -810,7 +815,7 @@ export default function App() {
                 isMuted: false,
                 repeatMode: "all" as const,
                 shuffleMode: false,
-                subscriptionTier: (user.email === "jkoehler319@gmail.com" ? "paid" : "free") as "free" | "paid",
+                subscriptionTier: (isAdminUserEmail(user.email) ? "paid" : "free") as "free" | "paid",
                 currentTrackId: null,
                 selectedPresetName: "Hip hop",
                 customEqBands: null,
@@ -845,6 +850,7 @@ export default function App() {
       } else {         
         setCurrentUser(null);         
         setIsLoggedIn(false);
+        localStorage.removeItem("quantumplayer_admin_override");
         setFirestoreTracks([]);         
         setFirestoreVideos([]);         
         setAuthLoading(false);       
@@ -899,20 +905,20 @@ export default function App() {
 
   const handleAccentThemeChange = async (theme: "cyan" | "cherry" | "chrome") => {     
     setAccentTheme(theme);     
-    if (currentUser) {       
+    if (auth.currentUser && currentUser && auth.currentUser.uid === currentUser.uid) {       
       if (quotaError) {
         console.warn("Firestore Quota Exceeded. Skipping remote theme save, preserved locally.");
         return;
       }
       try {         
-        const userDocRef = doc(db, "users", currentUser.uid);         
+        const userDocRef = doc(db, "users", auth.currentUser.uid);         
         await setDoc(userDocRef, {           
           accentTheme: theme,           
           updatedAt: new Date().toISOString()         
         }, { merge: true });         
         console.log("Persistent styling preference written to Firestore:", theme);       
       } catch (err) {         
-        handleFirestoreError(err, OperationType.WRITE, `users/${currentUser.uid}`);       
+        console.warn("Could not write theme to Firestore:", err);       
       }     
     }   
   };   
@@ -987,7 +993,7 @@ export default function App() {
   const [showAtomicExplosion, setShowAtomicExplosion] = useState<boolean>(false);   
 
   const handleSubscriptionTierChange = (tier: "free" | "paid") => {
-    const forcedTier = currentUser?.email === "jkoehler319@gmail.com" ? "paid" : tier;
+    const forcedTier = isAdminUserEmail(currentUser?.email) ? "paid" : tier;
     setSubscriptionTier(forcedTier);
     localStorage.setItem("thumplayer_sub_tier", forcedTier);
     if (forcedTier === "paid") {
@@ -1490,22 +1496,29 @@ export default function App() {
         console.warn("Failed to revoke blob URL:", err);       
       }     
     }     
-    if (track.url) {       
+    if (track.file) {       
+      audio.removeAttribute("crossorigin");
+      audio.src = URL.createObjectURL(track.file);     
+    } else if (track.url) {       
       if (track.url.startsWith("local-db://")) {
         try {
           audio.removeAttribute("crossorigin");
           const trackId = track.url.replace("local-db://", "");
           const dbTracks = await getLocalTracks();
-          const targetTrack = dbTracks.find(t => t.id === trackId);
+          const targetTrack = dbTracks.find(t => t.id === trackId || t.id === track.id || (t.name && track.name && t.name.toLowerCase() === track.name.toLowerCase()));
           if (targetTrack && targetTrack.blob) {
             const blobUrl = URL.createObjectURL(targetTrack.blob);
             audio.src = blobUrl;
+          } else if ((track as any).cloudUrl || (track as any).audioUrl) {
+            audio.crossOrigin = "anonymous";
+            audio.src = (track as any).cloudUrl || (track as any).audioUrl;
           } else {
-            throw new Error("Track blob not found in IndexedDB.");
+            console.warn(`Local audio track blob not found in IndexedDB for track "${track.name}" (${trackId}). Switching to synthetic audio mode.`);
+            setCurrentSyntheticLabel(track.name || "Synth Track");
           }
         } catch (err) {
-          console.error("Failed to load local database audio track:", err);
-          setUploadError("Failed to load audio file from your local storage.");
+          console.warn("Notice: Local database audio track blob unreadable, using synthetic fallback:", err);
+          setCurrentSyntheticLabel(track.name || "Synth Track");
         }
       } else if (track.url.startsWith("content://") || track.url.startsWith("file://") || track.url.startsWith("/storage")) {
         audio.removeAttribute("crossorigin");
@@ -1515,9 +1528,6 @@ export default function App() {
         audio.crossOrigin = "anonymous";
         audio.src = track.url;     
       }
-    } else if (track.file) {       
-      audio.removeAttribute("crossorigin");
-      audio.src = URL.createObjectURL(track.file);     
     }   
     if (track.duration) {
       setSongDuration(track.duration);
@@ -1557,7 +1567,7 @@ export default function App() {
       isMuted,
       repeatMode,
       shuffleMode,
-      subscriptionTier: currentUser?.email === "jkoehler319@gmail.com" ? "paid" : subscriptionTier,
+      subscriptionTier: isAdminUserEmail(currentUser?.email) ? "paid" : subscriptionTier,
       currentTrackId: activeTrackId,
       selectedPresetName,
       isMaxBass,
@@ -1622,10 +1632,14 @@ export default function App() {
       }
 
       syncTimerRef.current = setTimeout(() => {
-        const userDocRef = doc(db, "users", currentUser.uid);
+        if (!auth.currentUser || !currentUser || auth.currentUser.uid !== currentUser.uid) {
+          console.warn("User not authenticated in Firebase Auth. Skipping remote settings sync.");
+          return;
+        }
+        const userDocRef = doc(db, "users", auth.currentUser.uid);
         setDoc(userDocRef, {
           ...currentSettings,
-          uid: currentUser.uid,
+          uid: auth.currentUser.uid,
           updatedAt: new Date().toISOString()
         }, { merge: true })
           .then(() => {
@@ -1633,7 +1647,6 @@ export default function App() {
           })
           .catch((err) => {
             console.warn("Auto configuration sync caught issue:", err);
-            handleFirestoreError(err, OperationType.WRITE, `users/${currentUser.uid}`);
           });
       }, 2000);
     }
@@ -2183,7 +2196,7 @@ export default function App() {
   };   
 
   const applyAudioPreset = (preset: Preset) => {     
-    if (preset.isPremium && subscriptionTier !== "paid") {
+    if (preset.isPremium && effectiveSubscriptionTier !== "paid") {
       setGlobalPremiumPrompt(`The custom EQ Preset '${preset.name}' is a premium feature. Upgrade to unlock high-fidelity sound-engineering presets!`);
       setCurrentView("upgrade");
       return;
@@ -2218,16 +2231,16 @@ export default function App() {
       console.warn("localStorage quota exceeded or blocked:", e);
     }
     
-    if (currentUser) {
+    if (auth.currentUser && currentUser && auth.currentUser.uid === currentUser.uid) {
       try {
-        const userDocRef = doc(db, "users", currentUser.uid);
+        const userDocRef = doc(db, "users", auth.currentUser.uid);
         await setDoc(userDocRef, {
           customEqBands: bandsToSave,
           updatedAt: new Date().toISOString()
         }, { merge: true });
         console.log("Custom EQ preset saved to Firestore:", bandsToSave);
       } catch (err) {
-        handleFirestoreError(err, OperationType.WRITE, `users/${currentUser.uid}`);
+        console.warn("Could not save custom EQ preset to Firestore:", err);
       }
     }
   };
@@ -2251,22 +2264,22 @@ export default function App() {
     }
     setSelectedPresetName("Custom");
 
-    if (currentUser) {
+    if (auth.currentUser && currentUser && auth.currentUser.uid === currentUser.uid) {
       try {
-        const userDocRef = doc(db, "users", currentUser.uid);
+        const userDocRef = doc(db, "users", auth.currentUser.uid);
         await setDoc(userDocRef, {
           customEqBands: null,
           updatedAt: new Date().toISOString()
         }, { merge: true });
         console.log("Custom EQ preset reset in Firestore");
       } catch (err) {
-        handleFirestoreError(err, OperationType.WRITE, `users/${currentUser.uid}`);
+        console.warn("Could not reset custom EQ preset in Firestore:", err);
       }
     }
   };
 
   const handleAiOptimize = async (easyModeSetting?: boolean, customCarModel?: string) => {     
-    if (subscriptionTier !== "paid") {
+    if (effectiveSubscriptionTier !== "paid") {
       setGlobalPremiumPrompt("AI Audio Frequency Optimization & Spatial Acoustic Calibration is a premium feature. Upgrade to achieve maximum acoustic clarity and remaster your studio files!");
       setCurrentView("upgrade");
       return;
@@ -2438,13 +2451,7 @@ export default function App() {
                   className="w-16 h-16 rounded-xl object-cover shadow-[0_4px_12px_rgba(0,0,0,0.15)] mb-1" 
                 />
                 <span className="text-lg font-sans font-extrabold tracking-[0.2em] text-stone-900 drop-shadow-[0_1px_1px_rgba(255,255,255,0.85)] select-none text-center">QUANTUMPLAYERAI</span>
-                {currentUser?.email === "jkoehler319@gmail.com" && (
-                  <div className="flex flex-col items-center gap-1 bg-amber-500/15 border border-amber-600/30 p-2.5 rounded-2xl w-full text-center shadow-[0_0_10px_rgba(0,0,0,0.05)]">
-                     <span className="text-[9px] font-sans font-bold uppercase tracking-widest text-amber-800">ADMINISTRATOR PROFILE</span>
-                     <span className="text-[8.5px] font-sans text-stone-800 font-light lowercase">{currentUser.email}</span>
-                     <span className="text-[8px] font-sans font-bold uppercase tracking-wider text-emerald-700 mt-0.5">UNLIMITED ELITE TIER ACTIVE</span>
-                  </div>
-                )}
+
               </div>
               {/* Options - larger fonts, increased spacing */}
               {/* Audio Player */}
@@ -2953,7 +2960,7 @@ export default function App() {
                     presets={BUILTIN_PRESETS}                 
                     selectedPresetName={selectedPresetName}                 
                     onPresetSelect={applyAudioPreset}               
-                    isPremiumActive={subscriptionTier === "paid"}
+                    isPremiumActive={effectiveSubscriptionTier === "paid"}
                   />             
                 </section>             
               </>
@@ -3005,7 +3012,7 @@ export default function App() {
                   setCurrentView("player");
                   setGlobalPremiumPrompt("");
                 }} 
-                subscriptionTier={subscriptionTier}
+                subscriptionTier={effectiveSubscriptionTier}
                 onChangeSubscriptionTier={handleSubscriptionTierChange}
                 globalPremiumPrompt={globalPremiumPrompt}
               />
@@ -3018,7 +3025,7 @@ export default function App() {
                 dspSettings={dspSettings}
                 handleAiOptimize={handleAiOptimize}
                 isOptimizing={isOptimizing}
-                subscriptionTier={subscriptionTier}
+                subscriptionTier={effectiveSubscriptionTier}
                 onBackToPlayer={() => {
                   setCurrentView("player");
                 }}
@@ -3027,7 +3034,7 @@ export default function App() {
 
             {currentView === "ai_enhancement_video" && (
               <AiVideoEnhancementView
-                subscriptionTier={subscriptionTier}
+                subscriptionTier={effectiveSubscriptionTier}
                 onBackToPlayer={() => {
                   setCurrentView("video");
                 }}
@@ -3055,7 +3062,7 @@ export default function App() {
 
             {currentView === "video" && (
               <VideoView
-                subscriptionTier={subscriptionTier}
+                subscriptionTier={effectiveSubscriptionTier}
                 headunitTime={headunitTime}
                 onBackToPlayer={() => {
                   setCurrentView("player");

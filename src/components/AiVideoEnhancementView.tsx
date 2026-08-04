@@ -410,8 +410,8 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
     }
 
     const appliedSharpness = smartSharpness ? 45 : 15;
-    const sharpnessEffect = upscaleTarget === "4K" || upscaleTarget === "8K"
-      ? `drop-shadow(0 0 1px rgba(255,255,255,0.18)) contrast(1.03) saturate(1.02)`
+    const sharpnessEffect = (upscaleTarget === "4K" || upscaleTarget === "8K") && filterStr !== "none"
+      ? `contrast(1.04) saturate(1.02)`
       : "";
 
     return {

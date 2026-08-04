@@ -420,7 +420,7 @@ export const VideoView: React.FC<VideoViewProps> = ({
   const [isMuted, setIsMuted] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [aspectRatio, setAspectRatio] = useState<"16:9" | "21:9" | "4:3" | "1:1">("16:9");
-  const [videoFit, setVideoFit] = useState<"cover" | "contain" | "fill">("cover");
+  const [videoFit, setVideoFit] = useState<"cover" | "contain" | "fill">("contain");
   const [captionsEnabled, setCaptionsEnabled] = useState(false);
 
   // Dynamic context-aware subtitle caption generator
@@ -770,11 +770,13 @@ export const VideoView: React.FC<VideoViewProps> = ({
       let filterStr = `brightness(${brightness}) contrast(${contrast}) saturate(${saturation}) hue-rotate(${hueRotate}deg) sepia(${sepia})`;
       
       const sharpnessEffect = sharpness > 0 
-        ? `drop-shadow(0 0 ${sharpness * 0.05}px rgba(255,255,255,${sharpness * 0.003}))`
+        ? `contrast(${1 + sharpness * 0.002}) saturate(${1 + sharpness * 0.001})`
         : "";
         
       return {
-        filter: `${filterStr} ${sharpnessEffect}`
+        filter: `${filterStr} ${sharpnessEffect}`.trim(),
+        transform: "translateZ(0)",
+        willChange: "transform, filter"
       };
     }
 
@@ -796,13 +798,13 @@ export const VideoView: React.FC<VideoViewProps> = ({
       filterStr += " brightness(1.05) contrast(1.08)";
     }
 
-    // Apply high fidelity 4K sharpening style simulation
-    const sharpnessEffect = upscaleTarget === "4K" || upscaleTarget === "8K"
-      ? "drop-shadow(0 0 1px rgba(255,255,255,0.15)) contrast(1.02)"
+    // Apply high fidelity 8K/4K crisp sharpening without rasterization blur
+    const sharpnessEffect = (upscaleTarget === "4K" || upscaleTarget === "8K") && filterStr !== "none"
+      ? "contrast(1.04) saturate(1.02)"
       : "";
 
     return {
-      filter: `${filterStr} ${sharpnessEffect}`,
+      filter: `${filterStr} ${sharpnessEffect}`.trim(),
       transform: "translateZ(0)",
       willChange: "transform, filter"
     };
@@ -907,10 +909,18 @@ export const VideoView: React.FC<VideoViewProps> = ({
                     console.error("Video load error:", e);
                     setIsPlaying(false);
                   }}
-                  style={enhancedStyles}
-                  className={`w-full h-full rounded-2xl overflow-hidden ${
-                    videoFit === "contain" ? "object-contain" :
-                    videoFit === "fill" ? "object-fill" : "object-cover"
+                  style={{
+                    ...enhancedStyles,
+                    imageRendering: "high-quality",
+                    WebkitFontSmoothing: "antialiased"
+                  } as any}
+                  className={`w-full h-full overflow-hidden ${
+                    isFullscreen 
+                      ? "object-contain max-w-full max-h-full rounded-none" 
+                      : `${
+                          videoFit === "contain" ? "object-contain" :
+                          videoFit === "fill" ? "object-fill" : "object-cover"
+                        } rounded-2xl`
                   }`}
                 />
               ) : selectedVideo ? (

@@ -2,6 +2,7 @@ import { collection, query, where, getDocs, doc, getDoc, addDoc } from "firebase
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { db, storage, auth } from "../firebase";
 import jsmediatags from "jsmediatags/dist/jsmediatags.min.js";
+import { isAdminUserEmail } from "./admin";
 
 // Define strict Firestore Operation Types for error logging mapping
 export enum OperationType {
@@ -44,13 +45,6 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     errMsg = String(error);
   }
 
-  const lowerMsg = errMsg.toLowerCase();
-  const isQuotaError = lowerMsg.includes("quota") || 
-                       lowerMsg.includes("resource-exhausted") ||
-                       lowerMsg.includes("exhausted") ||
-                       lowerMsg.includes("exceeded") ||
-                       lowerMsg.includes("write stream");
-
   const errPayload: FirestoreErrorInfo = {
     error: errMsg,
     authInfo: {
@@ -68,19 +62,8 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     path
   };
 
-  if (isQuotaError) {
-    console.warn("Firestore Quota/Stream Limit Reached:", errMsg);
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("firestore-error", { detail: errPayload }));
-    }
-    return;
-  }
-
-  console.error("Firestore Ingestion/Security Error Caught:", JSON.stringify(errPayload, null, 2));
-
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("firestore-error", { detail: errPayload }));
-  }
+  console.error("Firestore Error: ", JSON.stringify(errPayload));
+  throw new Error(JSON.stringify(errPayload));
 }
 
 // Track Schema conforming to types.ts
@@ -181,13 +164,17 @@ export function extractMetadata(file: File): Promise<{ title: string; artist: st
  * Helper to query existing track uploads for a specific user to enforce limits
  */
 export async function getExistingUploadsCount(userId: string): Promise<number> {
+  if (!auth.currentUser || auth.currentUser.uid !== userId) {
+    return 0;
+  }
   const path = "tracks";
   try {
     const q = query(collection(db, path), where("uid", "==", userId));
     const snapshot = await getDocs(q);
     return snapshot.size;
   } catch (err) {
-    handleFirestoreError(err, OperationType.LIST, path);
+    console.warn("Could not query existing tracks count:", err);
+    return 0;
   }
 }
 
@@ -197,8 +184,12 @@ export async function getExistingUploadsCount(userId: string): Promise<number> {
  */
 export async function getUserSubscriptionTier(userId: string, email?: string): Promise<"free" | "paid" | "elite"> {
   // Hardcoded administrator/tester profile bypass for premium-level testing
-  if (email === "jkoehler319@gmail.com") {
+  if (isAdminUserEmail(email) || (auth.currentUser?.email && isAdminUserEmail(auth.currentUser.email))) {
     return "elite";
+  }
+
+  if (!auth.currentUser || auth.currentUser.uid !== userId) {
+    return "free";
   }
 
   const path = `users/${userId}`;
@@ -211,7 +202,8 @@ export async function getUserSubscriptionTier(userId: string, email?: string): P
     }
     return "free";
   } catch (err) {
-    handleFirestoreError(err, OperationType.GET, path);
+    console.warn("Could not fetch user subscription tier from Firestore:", err);
+    return "free";
   }
 }
 

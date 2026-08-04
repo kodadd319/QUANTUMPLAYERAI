@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import { auth } from "../firebase";
+import { isAdminUserEmail } from "../utils/admin";
 
 interface UpgradeViewProps {
   onBackToPlayer: () => void;
@@ -90,27 +91,6 @@ export const UpgradeView: React.FC<UpgradeViewProps> = ({
           </span>
         </div>
       </div>
-
-      {/* Administrator Status Indicator */}
-      {auth.currentUser?.email && ["jkoehler319@gmail.com", "jtothek319@gmail.com"].includes(auth.currentUser.email) && (
-        <motion.div 
-          initial={{ scale: 0.95, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          className="p-4 rounded-2xl bg-amber-500/10 border-2 border-amber-500/35 text-amber-200 flex items-start gap-4 shadow-[0_4px_20px_rgba(245,158,11,0.1)]"
-        >
-          <div className="w-8 h-8 rounded-lg bg-amber-950/40 border border-amber-500/30 flex items-center justify-center shrink-0">
-            <Crown className="w-4 h-4 text-amber-400 animate-pulse" />
-          </div>
-          <div className="flex flex-col gap-0.5">
-            <h4 className="font-sans text-[10px] font-semibold uppercase tracking-wider text-amber-400">
-              Administrator Profile Active
-            </h4>
-            <p className="font-sans text-[11px] text-stone-300 leading-relaxed font-semibold">
-              You are signed in as <strong className="text-amber-300">{auth.currentUser.email}</strong>. This profile is granted permanent, unlimited <strong>Elite Tier status</strong> for comprehensive application testing. No limits or restrictions are enforced.
-            </p>
-          </div>
-        </motion.div>
-      )}
 
       {/* Premium Notification Warning Banner */}
       {globalPremiumPrompt && subscriptionTier !== "paid" && (

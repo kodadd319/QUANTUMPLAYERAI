@@ -41,7 +41,9 @@ export const VideoThumbnail: React.FC<VideoThumbnailProps> = ({ video, className
             objectUrl = URL.createObjectURL(blob);
             srcUrl = objectUrl;
           } else {
-            throw new Error("Blob not found in IndexedDB");
+            setError(true);
+            setLoading(false);
+            return;
           }
         }
 

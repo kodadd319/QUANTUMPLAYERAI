@@ -921,7 +921,34 @@ export default function App() {
         console.warn("Could not write theme to Firestore:", err);       
       }     
     }   
-  };   
+  };
+
+  const handleLogout = async () => {
+    try {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      setIsPlaying(false);
+    } catch (e) {
+      console.warn("Could not pause audio during logout:", e);
+    }
+
+    try {
+      await signOut(auth);
+    } catch (err) {
+      console.error("Error signing out from Firebase:", err);
+    }
+
+    setCurrentUser(null);
+    setIsLoggedIn(false);
+    localStorage.removeItem("quantumplayer_admin_override");
+    setFirestoreTracks([]);
+    setFirestoreVideos([]);
+    lastSavedSettingsRef.current = null;
+    setLoadedTrackId(null);
+    setIsOpen(false);
+    setCurrentView("auth");
+  };
 
   useEffect(() => {     
     setPlaylist(firestoreTracks);
@@ -2590,19 +2617,10 @@ export default function App() {
               <div className="relative z-10 border-t border-black/10 my-1 mx-1" />
               
               <button
-                onClick={async () => {
-                  if (isLoggedIn) {
-                    try {
-                      await signOut(auth);
-                    } catch (err) {
-                      console.error("Error signing out:", err);
-                    }
-                  }
-                  setIsOpen(false);
-                  setCurrentView("landing");
-                }}
-                className="relative z-10 w-full text-left font-sans font-extrabold uppercase tracking-widest text-[14px] sm:text-[15px] px-4 py-2 rounded-xl transition-all duration-100 text-red-900 hover:bg-red-500/10 border border-transparent cursor-pointer hover:pl-5 font-black"
+                onClick={handleLogout}
+                className="relative z-10 w-full text-left font-sans font-extrabold uppercase tracking-widest text-[14px] sm:text-[15px] px-4 py-2 rounded-xl transition-all duration-100 text-red-900 hover:bg-red-500/10 border border-transparent cursor-pointer hover:pl-5 font-black flex items-center gap-2"
               >
+                <LogOut className="w-4 h-4" />
                 Log Out
               </button>
             </motion.div>
@@ -2820,15 +2838,10 @@ export default function App() {
 
               {currentUser && (
                 <button               
-                  onClick={async () => {                 
-                    try {
-                      await signOut(auth);
-                    } catch (err) {
-                      console.error("Error signing out:", err);
-                    }
-                  }}               
+                  onClick={handleLogout}               
                   className="px-6 py-3 rounded-xl font-sans text-xs font-semibold tracking-widest uppercase cursor-pointer select-none bg-red-950/20 border-2 border-red-500/30 text-red-400 hover:bg-red-500/25 hover:text-white hover:border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.15)] active:scale-95 duration-100 transition-all flex items-center gap-1.5"             
                 >               
+                  <LogOut className="w-3.5 h-3.5" />
                   Log Out
                 </button>
               )}

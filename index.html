@@ -29,61 +29,81 @@
     <meta name="theme-color" content="#020617" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <style>
+      html, body {
+        background-color: #0b0202 !important;
+        color: #f8fafc !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+        min-height: 100vh !important;
+        overscroll-behavior-y: none !important;
+      }
+      #root {
+        background-color: #0b0202 !important;
+        min-height: 100vh !important;
+        width: 100% !important;
+      }
+    </style>
   </head>
-  <body>
-    <!-- Google AdSense Ad Unit 1 (Add) -->
-    <div style="width: 100%; min-width: 280px; min-height: 90px; text-align: center; margin: 10px auto;">
-      <ins class="adsbygoogle"
-           style="display:block; width: 100%; min-width: 280px;"
-           data-ad-client="ca-pub-5765882849864509"
-           data-ad-slot="3726647075"
-           data-ad-format="auto"
-           data-full-width-responsive="true"></ins>
-    </div>
-    <script>
-      (function() {
-        function initAd1() {
-          try {
-            (adsbygoogle = window.adsbygoogle || []).push({});
-          } catch (e) {
-            console.warn("AdSense push error (unit 1):", e);
-          }
-        }
-        if (document.readyState === 'complete' || document.readyState === 'interactive') {
-          setTimeout(initAd1, 100);
-        } else {
-          window.addEventListener('DOMContentLoaded', function() { setTimeout(initAd1, 100); });
-        }
-      })();
-    </script>
-
-    <!-- Google AdSense Ad Unit 2 (Add 2) -->
-    <div style="width: 100%; min-width: 280px; min-height: 90px; text-align: center; margin: 10px auto;">
-      <ins class="adsbygoogle"
-           style="display:block; width: 100%; min-width: 280px;"
-           data-ad-client="ca-pub-5765882849864509"
-           data-ad-slot="2221993717"
-           data-ad-format="auto"
-           data-full-width-responsive="true"></ins>
-    </div>
-    <script>
-      (function() {
-        function initAd2() {
-          try {
-            (adsbygoogle = window.adsbygoogle || []).push({});
-          } catch (e) {
-            console.warn("AdSense push error (unit 2):", e);
-          }
-        }
-        if (document.readyState === 'complete' || document.readyState === 'interactive') {
-          setTimeout(initAd2, 200);
-        } else {
-          window.addEventListener('DOMContentLoaded', function() { setTimeout(initAd2, 200); });
-        }
-      })();
-    </script>
-
+  <body style="background-color: #0b0202; color: #f8fafc; margin: 0; padding: 0;">
     <div id="root"></div>
+
+    <!-- Google AdSense Ad Units Footer Container -->
+    <div style="background-color: #0b0202; width: 100%; min-width: 280px; text-align: center; padding: 20px 0; border-t: 1px solid rgba(255,255,255,0.05);">
+      <!-- Google AdSense Ad Unit 1 (Add) -->
+      <div style="width: 100%; max-width: 1000px; min-width: 280px; min-height: 90px; text-align: center; margin: 10px auto; background-color: #0b0202;">
+        <ins class="adsbygoogle"
+             style="display:block; width: 100%; min-width: 280px;"
+             data-ad-client="ca-pub-5765882849864509"
+             data-ad-slot="3726647075"
+             data-ad-format="auto"
+             data-full-width-responsive="true"></ins>
+      </div>
+      <script>
+        (function() {
+          function initAd1() {
+            try {
+              (adsbygoogle = window.adsbygoogle || []).push({});
+            } catch (e) {
+              console.warn("AdSense push warning (unit 1):", e);
+            }
+          }
+          if (document.readyState === 'complete' || document.readyState === 'interactive') {
+            setTimeout(initAd1, 200);
+          } else {
+            window.addEventListener('DOMContentLoaded', function() { setTimeout(initAd1, 200); });
+          }
+        })();
+      </script>
+
+      <!-- Google AdSense Ad Unit 2 (Add 2) -->
+      <div style="width: 100%; max-width: 1000px; min-width: 280px; min-height: 90px; text-align: center; margin: 10px auto; background-color: #0b0202;">
+        <ins class="adsbygoogle"
+             style="display:block; width: 100%; min-width: 280px;"
+             data-ad-client="ca-pub-5765882849864509"
+             data-ad-slot="2221993717"
+             data-ad-format="auto"
+             data-full-width-responsive="true"></ins>
+      </div>
+      <script>
+        (function() {
+          function initAd2() {
+            try {
+              (adsbygoogle = window.adsbygoogle || []).push({});
+            } catch (e) {
+              console.warn("AdSense push warning (unit 2):", e);
+            }
+          }
+          if (document.readyState === 'complete' || document.readyState === 'interactive') {
+            setTimeout(initAd2, 300);
+          } else {
+            window.addEventListener('DOMContentLoaded', function() { setTimeout(initAd2, 300); });
+          }
+        })();
+      </script>
+    </div>
+
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

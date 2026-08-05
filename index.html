@@ -15,6 +15,7 @@
     <meta name="google-adsense-account" content="ca-pub-5765882849864509" />
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Experience your music and videos like never before. Powered by advanced Gemini AI, QuantumPlayerAI instantly remasters your uploads, delivering ultra-crisp video upscaling and studio-grade audio optimization in real time. Take total control of your soundstage with a precision 5-band equalizer and tailored audio profiles optimized specifically for car audio, headphones, home audio, and immersive surround sound environments. Upload your files and let Gemini power your playback today." />
     <title>QUANTUMPLAYERAI</title>
     <!-- Icons and Manifest for "Add to Home Screen" -->
     <link rel="icon" type="image/png" href="/icon.png" />
@@ -26,31 +27,55 @@
   </head>
   <body>
     <!-- Google AdSense Ad Unit 1 (Add) -->
-    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5765882849864509"
-         crossorigin="anonymous"></script>
-    <!-- Add -->
-    <ins class="adsbygoogle"
-         style="display:block"
-         data-ad-client="ca-pub-5765882849864509"
-         data-ad-slot="3726647075"
-         data-ad-format="auto"
-         data-full-width-responsive="true"></ins>
+    <div style="width: 100%; min-width: 280px; min-height: 90px; text-align: center; margin: 10px auto;">
+      <ins class="adsbygoogle"
+           style="display:block; width: 100%; min-width: 280px;"
+           data-ad-client="ca-pub-5765882849864509"
+           data-ad-slot="3726647075"
+           data-ad-format="auto"
+           data-full-width-responsive="true"></ins>
+    </div>
     <script>
-         (adsbygoogle = window.adsbygoogle || []).push({});
+      (function() {
+        function initAd1() {
+          try {
+            (adsbygoogle = window.adsbygoogle || []).push({});
+          } catch (e) {
+            console.warn("AdSense push error (unit 1):", e);
+          }
+        }
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+          setTimeout(initAd1, 100);
+        } else {
+          window.addEventListener('DOMContentLoaded', function() { setTimeout(initAd1, 100); });
+        }
+      })();
     </script>
 
     <!-- Google AdSense Ad Unit 2 (Add 2) -->
-    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5765882849864509"
-         crossorigin="anonymous"></script>
-    <!-- Add 2 -->
-    <ins class="adsbygoogle"
-         style="display:block"
-         data-ad-client="ca-pub-5765882849864509"
-         data-ad-slot="2221993717"
-         data-ad-format="auto"
-         data-full-width-responsive="true"></ins>
+    <div style="width: 100%; min-width: 280px; min-height: 90px; text-align: center; margin: 10px auto;">
+      <ins class="adsbygoogle"
+           style="display:block; width: 100%; min-width: 280px;"
+           data-ad-client="ca-pub-5765882849864509"
+           data-ad-slot="2221993717"
+           data-ad-format="auto"
+           data-full-width-responsive="true"></ins>
+    </div>
     <script>
-         (adsbygoogle = window.adsbygoogle || []).push({});
+      (function() {
+        function initAd2() {
+          try {
+            (adsbygoogle = window.adsbygoogle || []).push({});
+          } catch (e) {
+            console.warn("AdSense push error (unit 2):", e);
+          }
+        }
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+          setTimeout(initAd2, 200);
+        } else {
+          window.addEventListener('DOMContentLoaded', function() { setTimeout(initAd2, 200); });
+        }
+      })();
     </script>
 
     <div id="root"></div>

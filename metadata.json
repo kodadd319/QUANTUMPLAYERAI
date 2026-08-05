@@ -1,6 +1,6 @@
 {
   "name": "QUANTUMPLAYERAI",
-  "description": "Your music optimized for your ride. An immersive offline car audio DSP player featuring real-time Web Audio equalization, interactive bass-booster knobs, real-time cabinet visualizers, and server-side AI-tailored vehicle profiles.",
+  "description": "Experience your music and videos like never before. Powered by advanced Gemini AI, QuantumPlayerAI instantly remasters your uploads, delivering ultra-crisp video upscaling and studio-grade audio optimization in real time. Take total control of your soundstage with a precision 5-band equalizer and tailored audio profiles optimized specifically for car audio, headphones, home audio, and immersive surround sound environments. Upload your files and let Gemini power your playback today.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

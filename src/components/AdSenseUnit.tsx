@@ -20,11 +20,15 @@ export const AdSenseUnit: React.FC<AdSenseUnitProps> = ({
   className = ""
 }) => {
   useEffect(() => {
-    try {
-      (window.adsbygoogle = window.adsbygoogle || []).push({});
-    } catch (err) {
-      console.error("AdSense error:", err);
-    }
+    const timer = setTimeout(() => {
+      try {
+        (window.adsbygoogle = window.adsbygoogle || []).push({});
+      } catch (err) {
+        console.warn("AdSense component push warning:", err);
+      }
+    }, 200);
+
+    return () => clearTimeout(timer);
   }, []);
 
   return (

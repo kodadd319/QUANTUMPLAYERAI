@@ -31,7 +31,8 @@ import {
   Menu,
   X,
   LogOut,
-  ArrowLeft
+  ArrowLeft,
+  FolderSync
 } from "lucide-react"; 
 import { Track, VehicleInfo, DspSettings, Preset, VideoTrack } from "./types"; 
 import jsmediatags from "jsmediatags/dist/jsmediatags.min.js";
@@ -45,6 +46,7 @@ import { MyMusicView } from "./components/MyMusicView";
 import { UpgradeView } from "./components/UpgradeView";
 import { AiEnhancementView } from "./components/AiEnhancementView";
 import { AiVideoEnhancementView } from "./components/AiVideoEnhancementView";
+import { AiVideoMirrorView } from "./components/AiVideoMirrorView";
 import { VideoView } from "./components/VideoView";
 import { MyVideosView } from "./components/MyVideosView";
 import { motion, AnimatePresence } from "motion/react"; 
@@ -445,6 +447,238 @@ export default function App() {
   } | null>(null);
   const lastSavedSettingsRef = useRef<any>(null);
   const syncTimerRef = useRef<any>(null);
+
+  // Global Persistent Media Scanner States
+  const [isScanningAudio, setIsScanningAudio] = useState(false);
+  const [audioScanProgress, setAudioScanProgress] = useState(0);
+  const [audioCurrentFile, setAudioCurrentFile] = useState<string | null>(null);
+  const [audioScanSuccess, setAudioScanSuccess] = useState("");
+  const [audioScanError, setAudioScanError] = useState("");
+
+  const [isScanningVideo, setIsScanningVideo] = useState(false);
+  const [videoScanProgress, setVideoScanProgress] = useState(0);
+  const [videoCurrentFile, setVideoCurrentFile] = useState<string | null>(null);
+  const [videoScanSuccess, setVideoScanSuccess] = useState("");
+  const [videoScanError, setVideoScanError] = useState("");
+
+  const musicScanInputRef = useRef<HTMLInputElement>(null);
+  const videoScanInputRef = useRef<HTMLInputElement>(null);
+
+  const triggerMusicScan = () => {
+    setAudioScanError("");
+    setAudioScanSuccess("");
+    if (musicScanInputRef.current) {
+      musicScanInputRef.current.click();
+    } else {
+      const el = document.getElementById("music-scanner");
+      if (el) el.click();
+    }
+  };
+
+  const triggerVideoScan = () => {
+    setVideoScanError("");
+    setVideoScanSuccess("");
+    if (videoScanInputRef.current) {
+      videoScanInputRef.current.click();
+    } else {
+      const el = document.getElementById("video-scanner");
+      if (el) el.click();
+    }
+  };
+
+  const handleWebMusicScanChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) {
+      setIsScanningAudio(false);
+      setAudioCurrentFile(null);
+      return;
+    }
+    const files = Array.from(e.target.files) as File[];
+
+    setIsScanningAudio(true);
+    setAudioScanProgress(0);
+    setAudioScanError("");
+    setAudioScanSuccess("");
+
+    try {
+      setAudioCurrentFile("Initializing local device file structure query...");
+      await new Promise((r) => setTimeout(r, 400));
+
+      const allowedExtensions = [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"];
+      const filteredFiles = files.filter(file => {
+        const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+        return allowedExtensions.includes(ext);
+      });
+
+      if (filteredFiles.length === 0) {
+        throw new Error("No valid local audio files found matching extensions (.mp3, .wav, .m4a, .aac, .ogg, .flac).");
+      }
+
+      const totalTracks = filteredFiles.length;
+      setAudioCurrentFile(`Discovered ${totalTracks} compatible tracks. Parsing local metadata...`);
+      await new Promise((r) => setTimeout(r, 600));
+
+      let processedCount = 0;
+      for (const file of filteredFiles) {
+        const title = file.name.replace(/\.[^/.]+$/, "");
+        const relativePath = (file as any).webkitRelativePath || "";
+        const parts = relativePath ? relativePath.split("/") : [];
+        let artist = "Local Storage";
+        let album = "Local Device";
+        if (parts.length >= 3) {
+          artist = parts[parts.length - 3];
+          album = parts[parts.length - 2];
+        } else if (parts.length === 2) {
+          album = parts[0];
+        }
+
+        let genre = "Local Media";
+        const fileLower = file.name.toLowerCase();
+        if (fileLower.includes("rap") || fileLower.includes("hip") || fileLower.includes("beat")) {
+          genre = "Hip Hop / Rap";
+        } else if (fileLower.includes("rock") || fileLower.includes("metal") || fileLower.includes("guitar")) {
+          genre = "Rock / Metal";
+        } else if (fileLower.includes("electro") || fileLower.includes("edm") || fileLower.includes("house") || fileLower.includes("dance")) {
+          genre = "EDM / Electronic";
+        } else if (fileLower.includes("pop") || fileLower.includes("rnb") || fileLower.includes("vocal")) {
+          genre = "Pop Vocal";
+        }
+
+        setAudioCurrentFile(`Processing: ${file.name}`);
+
+        let metadata;
+        try {
+          metadata = await scanMetadata(file);
+        } catch (err) {
+          metadata = { title: title, artist: artist, album: album, imageUrl: "", albumArtUrl: null };
+        }
+
+        const trackId = `track_local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+        const localTrackRecord = {
+          id: trackId,
+          name: metadata.title || title,
+          artist: metadata.artist && metadata.artist !== "Unknown Artist" ? metadata.artist : artist,
+          album: metadata.album && metadata.album !== "Unknown Album" ? metadata.album : album,
+          duration: 180,
+          genre: genre,
+          imageUrl: metadata.imageUrl || "",
+          albumArtUrl: metadata.albumArtUrl || null,
+          createdAt: new Date().toISOString(),
+          url: `local-db://${trackId}`,
+          blob: file,
+          uid: currentUser ? currentUser.uid : "guest"
+        };
+
+        await storeLocalTrack(localTrackRecord);
+        processedCount++;
+
+        setAudioScanProgress(Math.round((processedCount / totalTracks) * 100));
+        await new Promise((r) => setTimeout(r, 30));
+      }
+
+      await refreshLocalMedia();
+      setAudioScanSuccess(`Scan Complete! Discovered and synchronized ${processedCount} high-fidelity local tracks to your offline library.`);
+    } catch (err: any) {
+      console.error("Local audio scanner failed:", err);
+      setAudioScanError(err.message || "An error occurred while scanning your device storage.");
+    } finally {
+      setIsScanningAudio(false);
+      setAudioCurrentFile(null);
+      if (e.target) e.target.value = "";
+    }
+  };
+
+  const handleWebVideoScanChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) {
+      setIsScanningVideo(false);
+      setVideoCurrentFile(null);
+      return;
+    }
+    const files = Array.from(e.target.files) as File[];
+
+    setIsScanningVideo(true);
+    setVideoScanProgress(0);
+    setVideoScanError("");
+    setVideoScanSuccess("");
+
+    try {
+      setVideoCurrentFile("Initializing local device video structure query...");
+      await new Promise((r) => setTimeout(r, 400));
+
+      const allowedExtensions = [".mp4", ".webm", ".avi", ".mkv", ".mov", ".3gp", ".m4v"];
+      const filteredFiles = files.filter(file => {
+        const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+        return allowedExtensions.includes(ext);
+      });
+
+      if (filteredFiles.length === 0) {
+        throw new Error("No valid local video files found matching extensions (.mp4, .webm, .avi, .mkv, .mov, .3gp, .m4v).");
+      }
+
+      const totalVideos = filteredFiles.length;
+      setVideoCurrentFile(`Discovered ${totalVideos} compatible video tracks. Parsing local metadata...`);
+      await new Promise((r) => setTimeout(r, 600));
+
+      let processedCount = 0;
+      for (const file of filteredFiles) {
+        const title = file.name.replace(/\.[^/.]+$/, "");
+        const relativePath = (file as any).webkitRelativePath || "";
+        const parts = relativePath ? relativePath.split("/") : [];
+        let creator = "Local Storage";
+        let category = "Local Device";
+        if (parts.length >= 3) {
+          creator = parts[parts.length - 3];
+          category = parts[parts.length - 2];
+        } else if (parts.length === 2) {
+          category = parts[0];
+        }
+
+        let thumbnail = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80";
+        const lowerName = file.name.toLowerCase();
+        if (lowerName.includes("car") || lowerName.includes("drive") || lowerName.includes("speed")) {
+          thumbnail = "https://images.unsplash.com/photo-1518173946687-a4c8a383392e?w=500&auto=format&fit=crop&q=80";
+        } else if (lowerName.includes("bass") || lowerName.includes("audio") || lowerName.includes("sound")) {
+          thumbnail = "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=500&auto=format&fit=crop&q=80";
+        } else if (lowerName.includes("neon") || lowerName.includes("laser") || lowerName.includes("cyber")) {
+          thumbnail = "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=500&auto=format&fit=crop&q=80";
+        } else if (lowerName.includes("ocean") || lowerName.includes("sea") || lowerName.includes("water")) {
+          thumbnail = "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&auto=format&fit=crop&q=80";
+        }
+
+        setVideoCurrentFile(`Processing: ${file.name}`);
+
+        const videoId = `video_local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+        const localVideoRecord = {
+          id: videoId,
+          name: title,
+          creator: creator,
+          category: category,
+          duration: "0:30",
+          thumbnail: thumbnail,
+          createdAt: new Date().toISOString(),
+          blob: file,
+          uid: currentUser ? currentUser.uid : "guest"
+        };
+
+        await storeLocalVideo(localVideoRecord);
+        processedCount++;
+
+        setVideoScanProgress(Math.round((processedCount / totalVideos) * 100));
+        await new Promise((r) => setTimeout(r, 30));
+      }
+
+      await refreshLocalMedia();
+      setVideoScanSuccess(`Scan Complete! Discovered and synchronized ${processedCount} high-fidelity local videos to your offline library.`);
+    } catch (err: any) {
+      console.error("Local video scanner failed:", err);
+      setVideoScanError(err.message || "An error occurred while scanning your device storage.");
+    } finally {
+      setIsScanningVideo(false);
+      setVideoCurrentFile(null);
+      if (e.target) e.target.value = "";
+    }
+  };
 
   const refreshLocalMedia = async (userToUse?: any) => {
     try {
@@ -891,7 +1125,7 @@ export default function App() {
   useEffect(() => {     
     if (!authLoading) {
       if (!isLoggedIn) {       
-        const protectedViews = ["player", "mymusic", "myvideos", "upgrade", "ai_enhancement", "ai_enhancement_audio", "ai_enhancement_video", "video"];
+        const protectedViews = ["player", "mymusic", "myvideos", "upgrade", "ai_enhancement", "ai_enhancement_audio", "ai_enhancement_video", "ai_video_mirror", "video"];
         if (protectedViews.includes(currentView)) {
           setCurrentView("auth");
         }
@@ -2595,6 +2829,25 @@ export default function App() {
                 Ai video enhancement and optimizer
               </button>
 
+              {/* Live Video Settings Mirror Screen */}
+              <button
+                onClick={() => {
+                  if (isLoggedIn) {
+                    setCurrentView("ai_video_mirror");
+                  } else {
+                    setCurrentView("auth");
+                  }
+                  setIsOpen(false);
+                }}
+                className={`relative z-10 w-full text-left font-sans font-extrabold uppercase tracking-widest text-[14px] sm:text-[15px] px-4 py-2 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
+                  currentView === "ai_video_mirror"
+                    ? "bg-black/15 border-2 border-stone-950 text-black shadow-[0_1px_4px_rgba(0,0,0,0.15)] font-black"
+                    : "text-stone-950 hover:bg-black/5 hover:text-black hover:pl-5"
+                }`}
+              >
+                Live video mirror screen
+              </button>
+
               {/* Upgrade */}
               <button
                 onClick={() => {
@@ -2846,7 +3099,8 @@ export default function App() {
                 </button>
               )}
             </div>           
-          </div>           
+          </div>
+
           <footer className="w-full text-center mt-auto pt-6 border-t border-slate-900/60 flex flex-col sm:flex-row items-center justify-center gap-3 text-[10px] font-sans text-slate-400 uppercase tracking-widest pb-2">             
             <span className="opacity-60 text-[9px] tracking-wider">  2026 Studio Player</span>             
             <span className="hidden sm:inline text-slate-800">|</span>             
@@ -2931,7 +3185,7 @@ export default function App() {
           </footer>         
         </div>       
       )}       
-          {(currentView === "player" || currentView === "mymusic" || currentView === "myvideos" || currentView === "upgrade" || currentView === "ai_enhancement" || currentView === "ai_enhancement_audio" || currentView === "ai_enhancement_video" || currentView === "video") && (         
+          {(currentView === "player" || currentView === "mymusic" || currentView === "myvideos" || currentView === "upgrade" || currentView === "ai_enhancement" || currentView === "ai_enhancement_audio" || currentView === "ai_enhancement_video" || currentView === "ai_video_mirror" || currentView === "video") && (         
         <>           
           <main id="main-workbench" className="flex-1 w-full mx-auto px-4 py-6 flex flex-col gap-6 items-stretch max-w-xl">                          
             {currentView === "player" && (
@@ -2987,14 +3241,18 @@ export default function App() {
                 currentUser={currentUser}
                 isUploading={isUploading}
                 uploadProgress={uploadProgress}
-                uploadError={uploadError}
-                uploadSuccess={uploadSuccess}
+                uploadError={audioScanError || uploadError}
+                uploadSuccess={audioScanSuccess || uploadSuccess}
                 handleFileUpload={handleFileUpload}
                 deleteSelectedTracks={deleteSelectedTracks}
                 onPlayTrackById={onPlayTrackById}
-                setUploadError={setUploadError}
-                setUploadSuccess={setUploadSuccess}
+                setUploadError={(msg) => { setUploadError(msg); setAudioScanError(msg); }}
+                setUploadSuccess={(msg) => { setUploadSuccess(msg); setAudioScanSuccess(msg); }}
                 refreshLocalMedia={refreshLocalMedia}
+                isScanning={isScanningAudio}
+                scanProgress={audioScanProgress}
+                currentScanFile={audioCurrentFile}
+                onTriggerScan={triggerMusicScan}
               />
             )}
 
@@ -3005,17 +3263,21 @@ export default function App() {
                 currentUser={currentUser}
                 isUploading={isUploading}
                 uploadProgress={uploadProgress}
-                uploadError={uploadError}
-                uploadSuccess={uploadSuccess}
+                uploadError={videoScanError || uploadError}
+                uploadSuccess={videoScanSuccess || uploadSuccess}
                 handleFileUpload={handleFileUpload}
                 deleteSelectedVideos={deleteSelectedVideos}
                 onPlayVideo={(video) => {
                   setSelectedVideo(video);
                   setCurrentView("video");
                 }}
-                setUploadError={setUploadError}
-                setUploadSuccess={setUploadSuccess}
+                setUploadError={(msg) => { setUploadError(msg); setVideoScanError(msg); }}
+                setUploadSuccess={(msg) => { setUploadSuccess(msg); setVideoScanSuccess(msg); }}
                 refreshLocalMedia={refreshLocalMedia}
+                isScanning={isScanningVideo}
+                scanProgress={videoScanProgress}
+                currentScanFile={videoCurrentFile}
+                onTriggerScan={triggerVideoScan}
               />
             )}
 
@@ -3048,6 +3310,40 @@ export default function App() {
             {currentView === "ai_enhancement_video" && (
               <AiVideoEnhancementView
                 subscriptionTier={effectiveSubscriptionTier}
+                onBackToPlayer={() => {
+                  setCurrentView("video");
+                }}
+                onNavigateToUpgrade={() => {
+                  setGlobalPremiumPrompt("Unlock advanced VIP AI Video tuning, upscaling, color profiles, and pre-calibrated cinema modes.");
+                  setCurrentView("upgrade");
+                }}
+                onNavigateToMirror={() => {
+                  setCurrentView("ai_video_mirror");
+                }}
+                firestoreVideos={firestoreVideos}
+                selectedVideo={selectedVideo}
+                setSelectedVideo={setSelectedVideo}
+                activeModel={activeModel}
+                setActiveModel={setActiveModel}
+                upscaleTarget={upscaleTarget}
+                setUpscaleTarget={setUpscaleTarget}
+                colorEnhancement={colorEnhancement}
+                setColorEnhancement={setColorEnhancement}
+                smoothMotion={smoothMotion}
+                setSmoothMotion={setSmoothMotion}
+                turboMode={turboMode}
+                setTurboMode={setTurboMode}
+                aiOptimizedFilters={aiOptimizedFilters}
+                setAiOptimizedFilters={setAiOptimizedFilters}
+              />
+            )}
+
+            {currentView === "ai_video_mirror" && (
+              <AiVideoMirrorView
+                subscriptionTier={effectiveSubscriptionTier}
+                onBackToEnhancement={() => {
+                  setCurrentView("ai_enhancement_video");
+                }}
                 onBackToPlayer={() => {
                   setCurrentView("video");
                 }}
@@ -3110,7 +3406,69 @@ export default function App() {
         </>
       )}
 
+      {/* Persistent Global Media Scanner Inputs */}
+      <input
+        id="music-scanner"
+        ref={musicScanInputRef}
+        type="file"
+        // @ts-ignore
+        webkitdirectory=""
+        directory=""
+        multiple
+        className="hidden"
+        onChange={handleWebMusicScanChange}
+      />
+      <input
+        id="video-scanner"
+        ref={videoScanInputRef}
+        type="file"
+        // @ts-ignore
+        webkitdirectory=""
+        directory=""
+        multiple
+        className="hidden"
+        onChange={handleWebVideoScanChange}
+      />
+
+      {/* Floating Global Background Media Scanner Status Badge */}
+      {(isScanningAudio || isScanningVideo) && (
+        <div className="fixed bottom-6 right-6 z-50 bg-stone-900/95 border border-emerald-500/50 backdrop-blur-xl rounded-2xl p-4 shadow-[0_10px_40px_rgba(0,0,0,0.85)] flex items-center gap-4 min-w-[290px] max-w-[380px] transition-all">
+          <div className="relative flex items-center justify-center">
+            <FolderSync className="w-6 h-6 text-emerald-400 animate-spin" />
+            <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+            </span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider truncate">
+                {isScanningAudio ? "Scanning Music Library" : "Scanning Video Library"}
+              </span>
+              <span className="font-mono text-xs font-black text-emerald-300">
+                {isScanningAudio ? audioScanProgress : videoScanProgress}%
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-300 truncate font-mono">
+              {isScanningAudio ? (audioCurrentFile || "Processing tracks...") : (videoCurrentFile || "Processing videos...")}
+            </p>
+            <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mt-1.5 border border-white/10">
+              <div 
+                className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full transition-all duration-300"
+                style={{ width: `${isScanningAudio ? audioScanProgress : videoScanProgress}%` }}
+              />
+            </div>
+          </div>
+          <button
+            onClick={() => setCurrentView(isScanningAudio ? "mymusic" : "myvideos")}
+            className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-400 hover:text-white bg-emerald-500/10 hover:bg-emerald-500/30 rounded-lg border border-emerald-500/30 transition-all shrink-0"
+          >
+            View
+          </button>
+        </div>
+      )}
+
       {/* Minimized player disabled as requested */}
-    </div>   
-  ); 
+    </div>
+  );
 }

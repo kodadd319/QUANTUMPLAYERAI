@@ -49,6 +49,7 @@ interface AiVideoEnhancementViewProps {
   subscriptionTier: "free" | "paid";
   onBackToPlayer: () => void;
   onNavigateToUpgrade: () => void;
+  onNavigateToMirror?: () => void;
   firestoreVideos: VideoTrack[];
   
   // Shared States from App.tsx
@@ -80,6 +81,7 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
   subscriptionTier: parentSubscriptionTier,
   onBackToPlayer,
   onNavigateToUpgrade,
+  onNavigateToMirror,
   firestoreVideos,
   
   // Shared States
@@ -470,6 +472,16 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
 
         {/* Back and Upgrade Button */}
         <div className="flex flex-wrap items-center gap-2.5">
+          {onNavigateToMirror && (
+            <button
+              onClick={onNavigateToMirror}
+              className="px-3.5 py-2 rounded-xl text-xs font-sans font-bold tracking-wide transition-all border bg-gradient-to-r from-amber-500/20 to-amber-600/20 border-amber-500/40 text-amber-300 hover:bg-amber-500/30 hover:border-amber-400 shadow-md flex items-center gap-1.5 cursor-pointer"
+            >
+              <Tv className="w-4 h-4 text-amber-400 animate-pulse" />
+              Live Mirror Screen
+            </button>
+          )}
+
           {parentSubscriptionTier !== "paid" && (
             <button
               onClick={onNavigateToUpgrade}
@@ -1015,15 +1027,27 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
                   Video Screen
                 </h4>
               </div>
-              <span className={`text-[9px] font-mono font-bold tracking-widest px-2 py-0.5 rounded ${
-                isHoldingCompare
-                  ? "bg-stone-950 text-stone-500"
-                  : aiOptimizedFilters 
-                  ? "bg-amber-500/10 text-amber-500 animate-pulse border border-amber-500/20" 
-                  : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-              }`}>
-                {isHoldingCompare ? "ORIGINAL" : aiOptimizedFilters ? "AI TUNING" : "TUNED"}
-              </span>
+              <div className="flex items-center gap-2">
+                {onNavigateToMirror && (
+                  <button
+                    onClick={onNavigateToMirror}
+                    className="px-2 py-0.5 rounded text-[9px] font-sans bg-stone-950 hover:bg-stone-850 text-amber-400 hover:text-white border border-stone-800 flex items-center gap-1 transition-colors cursor-pointer"
+                    title="Expand into full Live Mirror Screen"
+                  >
+                    <Tv className="w-2.5 h-2.5 text-amber-400" />
+                    Expand Mirror
+                  </button>
+                )}
+                <span className={`text-[9px] font-mono font-bold tracking-widest px-2 py-0.5 rounded ${
+                  isHoldingCompare
+                    ? "bg-stone-950 text-stone-500"
+                    : aiOptimizedFilters 
+                    ? "bg-amber-500/10 text-amber-500 animate-pulse border border-amber-500/20" 
+                    : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                }`}>
+                  {isHoldingCompare ? "ORIGINAL" : aiOptimizedFilters ? "AI TUNING" : "TUNED"}
+                </span>
+              </div>
             </div>
 
             {/* Video Preview Bezel - Double-Din Automotive Styled */}

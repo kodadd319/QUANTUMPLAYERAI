@@ -51,6 +51,10 @@ interface MyMusicViewProps {
   setUploadError: (msg: string) => void;
   setUploadSuccess: (msg: string) => void;
   refreshLocalMedia?: () => Promise<{ songs: Track[]; vids: any[] }>;
+  isScanning?: boolean;
+  scanProgress?: number;
+  currentScanFile?: string | null;
+  onTriggerScan?: () => void;
 }
 
 // Helper to generate a 100% playable, valid WAV blob containing a 40Hz sub-bass tone for smooth audio engine loading
@@ -111,7 +115,11 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
   onPlayTrackById,
   setUploadError,
   setUploadSuccess,
-  refreshLocalMedia
+  refreshLocalMedia,
+  isScanning: propIsScanning,
+  scanProgress: propScanProgress,
+  currentScanFile: propCurrentScanFile,
+  onTriggerScan
 }) => {
   const [viewCategory, setViewCategory] = useState<"all" | "artist" | "album" | "releaseDate" | "genre">("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -204,15 +212,23 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
     };
   };
 
-  // Smart Scanner Service local states
-  const [isScanning, setIsScanning] = useState(false);
-  const [currentScanFile, setCurrentScanFile] = useState<string | null>(null);
-  const [scanProgress, setScanProgress] = useState<number>(0);
+  // Smart Scanner Service local states & persistent props resolution
+  const [internalIsScanning, setInternalIsScanning] = useState(false);
+  const [internalCurrentScanFile, setInternalCurrentScanFile] = useState<string | null>(null);
+  const [internalScanProgress, setInternalScanProgress] = useState<number>(0);
   const [scanResult, setScanResult] = useState<{ tracksCount: number; limitExceeded: boolean } | null>(null);
   const scanInputRef = useRef<HTMLInputElement>(null);
 
+  const isScanning = propIsScanning !== undefined ? propIsScanning : internalIsScanning;
+  const scanProgress = propScanProgress !== undefined ? propScanProgress : internalScanProgress;
+  const currentScanFile = propCurrentScanFile !== undefined ? propCurrentScanFile : internalCurrentScanFile;
+
   // Web-compatible HTML5 folder / local device storage scanner
   const handleSmartScan = async () => {
+    if (onTriggerScan) {
+      onTriggerScan();
+      return;
+    }
     setUploadError("");
     setUploadSuccess("");
     if (scanInputRef.current) {
@@ -225,25 +241,25 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
 
   const handleWebFolderScanChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) {
-      setIsScanning(false);
-      setCurrentScanFile(null);
+      setInternalIsScanning(false);
+      setInternalCurrentScanFile(null);
       return;
     }
     const files = Array.from(e.target.files) as File[];
     if (files.length === 0) {
-      setIsScanning(false);
-      setCurrentScanFile(null);
+      setInternalIsScanning(false);
+      setInternalCurrentScanFile(null);
       return;
     }
 
-    setIsScanning(true);
-    setScanProgress(0);
+    setInternalIsScanning(true);
+    setInternalScanProgress(0);
     setScanResult(null);
     setUploadError("");
     setUploadSuccess("");
 
     try {
-      setCurrentScanFile("Initializing local device file structure query...");
+      setInternalCurrentScanFile("Initializing local device file structure query...");
       await new Promise((r) => setTimeout(r, 400));
 
       // Automated File Filtering Loop: Accept all local audio extensions (case-insensitive)
@@ -258,7 +274,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
       }
 
       const totalTracks = filteredFiles.length;
-      setCurrentScanFile(`Discovered ${totalTracks} compatible tracks. Parsing local metadata...`);
+      setInternalCurrentScanFile(`Discovered ${totalTracks} compatible tracks. Parsing local metadata...`);
       await new Promise((r) => setTimeout(r, 600));
 
       let processedCount = 0;
@@ -291,7 +307,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
           genre = "Pop Vocal";
         }
 
-        setCurrentScanFile(`Processing: ${file.name}`);
+        setInternalCurrentScanFile(`Processing: ${file.name}`);
 
         let metadata;
         try {
@@ -323,7 +339,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
         processedCount++;
 
         // Stagger progress animation for tactile feedback
-        setScanProgress(Math.round((processedCount / totalTracks) * 100));
+        setInternalScanProgress(Math.round((processedCount / totalTracks) * 100));
         await new Promise((r) => setTimeout(r, 30));
       }
 
@@ -343,8 +359,8 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
       console.error("Local audio scanner failed:", err);
       setUploadError(err.message || "An error occurred while scanning your device storage.");
     } finally {
-      setIsScanning(false);
-      setCurrentScanFile(null);
+      setInternalIsScanning(false);
+      setInternalCurrentScanFile(null);
     }
   };
 

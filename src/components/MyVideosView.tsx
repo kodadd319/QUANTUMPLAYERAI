@@ -79,6 +79,10 @@ interface MyVideosViewProps {
   setUploadError: (msg: string) => void;
   setUploadSuccess: (msg: string) => void;
   refreshLocalMedia?: () => Promise<{ songs: any[]; vids: VideoTrack[] }>;
+  isScanning?: boolean;
+  scanProgress?: number;
+  currentScanFile?: string | null;
+  onTriggerScan?: () => void;
 }
 
 export const MyVideosView: React.FC<MyVideosViewProps> = ({
@@ -94,7 +98,11 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
   onPlayVideo,
   setUploadError,
   setUploadSuccess,
-  refreshLocalMedia
+  refreshLocalMedia,
+  isScanning: propIsScanning,
+  scanProgress: propScanProgress,
+  currentScanFile: propCurrentScanFile,
+  onTriggerScan
 }) => {
   const [viewCategory, setViewCategory] = useState<"all" | "creator" | "category">("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -184,14 +192,22 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
     };
   };
 
-  // Scanning local states
-  const [isScanning, setIsScanning] = useState(false);
-  const [currentScanFile, setCurrentScanFile] = useState<string | null>(null);
-  const [scanProgress, setScanProgress] = useState<number>(0);
+  // Scanning local states & persistent props resolution
+  const [internalIsScanning, setInternalIsScanning] = useState(false);
+  const [internalCurrentScanFile, setInternalCurrentScanFile] = useState<string | null>(null);
+  const [internalScanProgress, setInternalScanProgress] = useState<number>(0);
   const videoScanInputRef = useRef<HTMLInputElement>(null);
+
+  const isScanning = propIsScanning !== undefined ? propIsScanning : internalIsScanning;
+  const scanProgress = propScanProgress !== undefined ? propScanProgress : internalScanProgress;
+  const currentScanFile = propCurrentScanFile !== undefined ? propCurrentScanFile : internalCurrentScanFile;
 
   // Web-compatible HTML5 folder / local device storage scanner for videos
   const handleSmartScan = async () => {
+    if (onTriggerScan) {
+      onTriggerScan();
+      return;
+    }
     setUploadError("");
     setUploadSuccess("");
     if (videoScanInputRef.current) {
@@ -204,24 +220,24 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
 
   const handleWebFolderScanChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) {
-      setIsScanning(false);
-      setCurrentScanFile(null);
+      setInternalIsScanning(false);
+      setInternalCurrentScanFile(null);
       return;
     }
     const files = Array.from(e.target.files) as File[];
     if (files.length === 0) {
-      setIsScanning(false);
-      setCurrentScanFile(null);
+      setInternalIsScanning(false);
+      setInternalCurrentScanFile(null);
       return;
     }
 
-    setIsScanning(true);
-    setScanProgress(0);
+    setInternalIsScanning(true);
+    setInternalScanProgress(0);
     setUploadError("");
     setUploadSuccess("");
 
     try {
-      setCurrentScanFile("Initializing local device video structure query...");
+      setInternalCurrentScanFile("Initializing local device video structure query...");
       await new Promise((r) => setTimeout(r, 400));
 
       // Automated File Filtering Loop: Accept all local video extensions (case-insensitive)
@@ -236,7 +252,7 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
       }
 
       const totalVideos = filteredFiles.length;
-      setCurrentScanFile(`Discovered ${totalVideos} compatible video tracks. Parsing local metadata...`);
+      setInternalCurrentScanFile(`Discovered ${totalVideos} compatible video tracks. Parsing local metadata...`);
       await new Promise((r) => setTimeout(r, 600));
 
       let processedCount = 0;
@@ -269,7 +285,7 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
           thumbnail = "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&auto=format&fit=crop&q=80";
         }
 
-        setCurrentScanFile(`Processing: ${file.name}`);
+        setInternalCurrentScanFile(`Processing: ${file.name}`);
 
         const videoId = `video_local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
@@ -291,7 +307,7 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
         processedCount++;
 
         // Stagger scanning progress meter
-        setScanProgress(Math.round((processedCount / totalVideos) * 100));
+        setInternalScanProgress(Math.round((processedCount / totalVideos) * 100));
         await new Promise((r) => setTimeout(r, 30));
       }
 
@@ -306,8 +322,8 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
       console.error("Local video scanner failed:", err);
       setUploadError(err.message || "An error occurred while scanning your device storage.");
     } finally {
-      setIsScanning(false);
-      setCurrentScanFile(null);
+      setInternalIsScanning(false);
+      setInternalCurrentScanFile(null);
     }
   };
 

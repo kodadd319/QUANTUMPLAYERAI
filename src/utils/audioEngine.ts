@@ -2,8 +2,9 @@ import { DspSettings } from "../types";
 
 export class CarAudioEngine {
   public ctx: AudioContext | null = null;
-  public audioElement: HTMLAudioElement;
+  public audioElement: HTMLMediaElement;
   private source: MediaElementAudioSourceNode | null = null;
+  private attachedElements = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>();
 
   // DSP Node collection
   private hpFilter!: BiquadFilterNode;
@@ -27,18 +28,56 @@ export class CarAudioEngine {
 
   private isArranged = false;
 
-  constructor(audioElement: HTMLAudioElement) {
+  constructor(audioElement: HTMLMediaElement) {
     this.audioElement = audioElement;
   }
 
-  public init() {
-    if (this.ctx) return;
+  public attachMediaElement(element: HTMLMediaElement) {
+    if (!element) return;
+    this.audioElement = element;
 
-    // Use standard standard-rate AudioContext
-    const AudioContextClass = (window.AudioContext || (window as any).webkitAudioContext);
-    this.ctx = new AudioContextClass();
+    if (!this.ctx) {
+      const AudioContextClass = (window.AudioContext || (window as any).webkitAudioContext);
+      this.ctx = new AudioContextClass();
+    }
 
-    this.source = this.ctx.createMediaElementSource(this.audioElement);
+    if (this.ctx.state === "suspended") {
+      this.ctx.resume().catch(() => {});
+    }
+
+    // Reuse existing source for element if already created
+    let mediaSource = this.attachedElements.get(element);
+    if (!mediaSource) {
+      try {
+        mediaSource = this.ctx.createMediaElementSource(element);
+        this.attachedElements.set(element, mediaSource);
+      } catch (e) {
+        console.warn("Media element already connected or restricted:", e);
+      }
+    }
+
+    if (mediaSource) {
+      if (this.source && this.source !== mediaSource) {
+        try {
+          this.source.disconnect();
+        } catch (e) {}
+      }
+      this.source = mediaSource;
+
+      if (!this.isArranged) {
+        this.setupGraph();
+      } else {
+        try {
+          this.source.connect(this.hpFilter);
+        } catch (e) {
+          // Already connected or noop
+        }
+      }
+    }
+  }
+
+  private setupGraph() {
+    if (!this.ctx || !this.source) return;
 
     // 1. High Pass Filter (Subsonic rumble protection)
     this.hpFilter = this.ctx.createBiquadFilter();
@@ -142,6 +181,11 @@ export class CarAudioEngine {
 
     this.isArranged = true;
     console.log("Web Audio DSP Engine wired successfully!");
+  }
+
+  public init() {
+    if (this.ctx) return;
+    this.attachMediaElement(this.audioElement);
   }
 
   public resume() {

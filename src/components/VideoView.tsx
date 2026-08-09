@@ -32,9 +32,15 @@ import {
   User,
   RotateCcw,
   Loader2,
-  Subtitles
+  Subtitles,
+  Flame,
+  Cast,
+  Zap
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { CastModal, CastDevice } from "./CastModal";
+import { TotalQuantumConsole } from "./TotalQuantumConsole";
+import { DspSettings } from "../types";
 import { 
   collection, 
   addDoc, 
@@ -214,6 +220,16 @@ interface VideoViewProps {
   } | null;
   setAiOptimizedFilters: (filters: any) => void;
   onRefreshVideos?: () => Promise<void>;
+  deleteSelectedVideos?: (videoIds: string[]) => Promise<void>;
+
+  // Total Quantum Props
+  isTotalQuantumActive?: boolean;
+  setIsTotalQuantumActive?: (active: boolean) => void;
+  dspSettings?: DspSettings;
+  setDspSettings?: React.Dispatch<React.SetStateAction<DspSettings>>;
+  onUpdateBassBoost?: (val: number) => void;
+  onUpdateEqBand?: (index: number, val: number) => void;
+  ensureEngine?: (targetElement?: HTMLMediaElement | null) => void;
 }
 
 export const VideoView: React.FC<VideoViewProps> = ({
@@ -228,6 +244,7 @@ export const VideoView: React.FC<VideoViewProps> = ({
   uploadSuccess: parentUploadSuccess,
   onUploadVideos,
   onRefreshVideos,
+  deleteSelectedVideos,
   
   // Shared states
   selectedVideo,
@@ -243,7 +260,24 @@ export const VideoView: React.FC<VideoViewProps> = ({
   turboMode,
   setTurboMode,
   aiOptimizedFilters,
-  setAiOptimizedFilters
+  setAiOptimizedFilters,
+
+  // Total Quantum
+  isTotalQuantumActive = true,
+  setIsTotalQuantumActive,
+  dspSettings = {
+    eqBands: [4, 1, 0, 2, 3],
+    bassBoost: 50.0,
+    reverbWet: 0.08,
+    delayOffsetMs: 12,
+    highPassFilterHz: 30,
+    subCrossoverHz: 80,
+    justification: "Total Quantum Audio-Video DSP Active"
+  },
+  setDspSettings,
+  onUpdateBassBoost,
+  onUpdateEqBand,
+  ensureEngine
 }) => {
   // Video Sources State
   const [resolvedVideoUrl, setResolvedVideoUrl] = useState<string>("");
@@ -309,6 +343,8 @@ export const VideoView: React.FC<VideoViewProps> = ({
   const [viewCategory, setViewCategory] = useState<"all" | "personal" | "futuristic" | "cinematic" | "abstract">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedVideoIds, setSelectedVideoIds] = useState<string[]>([]);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   // Firestore sync effect for personal videos
@@ -411,6 +447,18 @@ export const VideoView: React.FC<VideoViewProps> = ({
   // High Performance Native HTML5 Video Player Reference
   const videoRawRef = useRef<HTMLVideoElement>(null);
 
+  // Cast & Total Quantum states
+  const [showCastModal, setShowCastModal] = useState(false);
+  const [connectedCastDevice, setConnectedCastDevice] = useState<CastDevice | null>(null);
+  const [showQuantumConsole, setShowQuantumConsole] = useState(false);
+
+  // Ensure Web Audio DSP attaches to Video Element when Total Quantum is active
+  useEffect(() => {
+    if (isTotalQuantumActive && videoRawRef.current && ensureEngine) {
+      ensureEngine(videoRawRef.current);
+    }
+  }, [isTotalQuantumActive, selectedVideo, resolvedVideoUrl, ensureEngine]);
+
   // Interface State Machine
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -508,6 +556,9 @@ export const VideoView: React.FC<VideoViewProps> = ({
       if (typeof raw.pause === "function") raw.pause();
       setIsPlaying(false);
     } else {
+      if (ensureEngine && isTotalQuantumActive) {
+        ensureEngine(raw);
+      }
       if (typeof raw.play === "function") {
         raw.play()?.catch((e: any) => console.log("Native video play error:", e));
       }
@@ -636,11 +687,28 @@ export const VideoView: React.FC<VideoViewProps> = ({
     );
   };
 
-  const handleBatchDelete = async () => {
+  const handleSingleDelete = (videoId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setPendingDeleteIds([videoId]);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleBatchDelete = () => {
     if (selectedVideoIds.length === 0) return;
-    if (confirm(`Are you sure you want to delete ${selectedVideoIds.length} video(s) from your storage?`)) {
-      const idsToDelete = [...selectedVideoIds];
-      setSelectedVideoIds([]);
+    setPendingDeleteIds([...selectedVideoIds]);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = async () => {
+    const idsToDelete = pendingDeleteIds.length > 0 ? pendingDeleteIds : selectedVideoIds;
+    if (idsToDelete.length === 0) return;
+
+    setPendingDeleteIds([]);
+    setSelectedVideoIds(prev => prev.filter(id => !idsToDelete.includes(id)));
+    setShowDeleteConfirm(false);
+    if (deleteSelectedVideos) {
+      await deleteSelectedVideos(idsToDelete);
+    } else {
       try {
         for (const cid of idsToDelete) {
           const track = uploadedVideos.find(v => v.id === cid);
@@ -836,14 +904,42 @@ export const VideoView: React.FC<VideoViewProps> = ({
             </span>
           </span>
           
-          <button 
-            onClick={onBackToPlayer}
-            className="px-2.5 py-1 rounded bg-stone-900 hover:bg-stone-850 text-stone-300 hover:text-white border border-stone-800 text-[8px] font-sans font-bold uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-all active:scale-95"
-            title="Return to music player"
-          >
-            <ArrowLeft className="w-3 h-3" />
-            Switch to Audio Player
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowQuantumConsole(true)}
+              className={`px-2.5 py-1 rounded border text-[8px] font-sans font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 ${
+                isTotalQuantumActive
+                  ? "bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-[0_0_12px_rgba(245,158,11,0.4)] animate-pulse"
+                  : "bg-stone-900 hover:bg-stone-850 text-stone-300 hover:text-white border-stone-800"
+              }`}
+              title="Open Total Quantum Combined Audio-Video Console"
+            >
+              <Zap className="w-3 h-3 text-amber-400 fill-current" />
+              {isTotalQuantumActive ? "Total Quantum: Active" : "Total Quantum"}
+            </button>
+
+            <button
+              onClick={() => setShowCastModal(true)}
+              className={`px-2.5 py-1 rounded border text-[8px] font-sans font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 ${
+                connectedCastDevice
+                  ? "bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-[0_0_12px_rgba(245,158,11,0.3)] animate-pulse"
+                  : "bg-stone-900 hover:bg-stone-850 text-stone-300 hover:text-white border-stone-800"
+              }`}
+              title="Cast video stream to Smart TV or Streaming Device"
+            >
+              <Cast className="w-3 h-3 text-amber-400" />
+              {connectedCastDevice ? `Cast: ${connectedCastDevice.name}` : "Cast TV"}
+            </button>
+
+            <button 
+              onClick={onBackToPlayer}
+              className="px-2.5 py-1 rounded bg-stone-900 hover:bg-stone-850 text-stone-300 hover:text-white border border-stone-800 text-[8px] font-sans font-bold uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-all active:scale-95"
+              title="Return to music player"
+            >
+              <ArrowLeft className="w-3 h-3" />
+              Switch to Audio Player
+            </button>
+          </div>
 
           <div className="flex items-center gap-3">
             {turboMode && (
@@ -857,7 +953,32 @@ export const VideoView: React.FC<VideoViewProps> = ({
 
         {/* SINGLE-COLUMN VERTICAL COHESIVE LAYOUT */}
         <div className="flex flex-col gap-5 relative z-10 w-full">
-          
+
+          {/* Active Cast Status Banner */}
+          {connectedCastDevice && (
+            <div className="w-full bg-amber-500/15 border border-amber-500/40 rounded-2xl p-3 px-4 flex items-center justify-between text-xs text-amber-300 backdrop-blur-md shadow-[0_0_20px_rgba(245,158,11,0.15)]">
+              <div className="flex items-center gap-3">
+                <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400">
+                  <Cast className="w-4 h-4 animate-pulse" />
+                </div>
+                <div>
+                  <div className="font-semibold text-white">
+                    Casting to {connectedCastDevice.name}
+                  </div>
+                  <div className="text-[10px] text-amber-400/80">
+                    {selectedVideo?.name || "Video Stream"} • {connectedCastDevice.resolution}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowCastModal(true)}
+                className="text-[10px] font-bold uppercase tracking-wider text-stone-950 bg-amber-400 hover:bg-amber-300 px-3 py-1.5 rounded-xl transition-all cursor-pointer shadow-md active:scale-95"
+              >
+                Cast Controls
+              </button>
+            </div>
+          )}
+
           {/* 1. LARGE PREMIUM SCREEN BEZEL DESIGN: Framed just like a double-din physical display screen */}
           <div 
             ref={playerWrapperRef}
@@ -906,7 +1027,7 @@ export const VideoView: React.FC<VideoViewProps> = ({
                   onPause={() => setIsPlaying(false)}
                   onEnded={() => handleNextVideo()}
                   onError={(e) => {
-                    console.error("Video load error:", e);
+                    console.error("Video load error:", e?.type || "error");
                     setIsPlaying(false);
                   }}
                   style={{
@@ -1155,9 +1276,18 @@ export const VideoView: React.FC<VideoViewProps> = ({
                   </span>
 
                   {/* Video Title */}
-                  <h2 className="text-xl sm:text-2xl font-sans font-semibold text-white tracking-normal leading-tight truncate max-w-full uppercase drop-shadow-[0_2px_10px_rgba(255,255,255,0.05)]">
-                    {selectedVideo.name}
-                  </h2>
+                  <div className="flex items-center justify-center gap-2 max-w-full px-2">
+                    <h2 className="text-xl sm:text-2xl font-sans font-semibold text-white tracking-normal leading-tight truncate uppercase drop-shadow-[0_2px_10px_rgba(255,255,255,0.05)]">
+                      {selectedVideo.name}
+                    </h2>
+                    <button
+                      onClick={(e) => handleSingleDelete(selectedVideo.id, e)}
+                      className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 hover:text-red-300 transition-all cursor-pointer shrink-0"
+                      title="Delete this video"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
 
                   {/* Creator Label */}
                   <p className="text-xs sm:text-sm text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.4)] font-sans font-semibold tracking-widest uppercase mt-1.5">
@@ -1261,6 +1391,33 @@ export const VideoView: React.FC<VideoViewProps> = ({
               title="Stop Video & Reset"
             >
               <Square className="w-3.5 h-3.5 fill-red-800/10" />
+            </button>
+
+            {/* TOTAL QUANTUM COMBINED CONSOLE BUTTON */}
+            <button
+              onClick={() => setShowQuantumConsole(true)}
+              className={`w-9 h-9 rounded-full border flex items-center justify-center cursor-pointer transition-all active:scale-90 ${
+                isTotalQuantumActive
+                  ? "bg-amber-500/25 border-amber-500 text-amber-300 shadow-[0_0_16px_rgba(245,158,11,0.6)] animate-pulse"
+                  : "bg-transparent border-stone-850 hover:border-amber-500/60 text-stone-300 hover:text-amber-400"
+              }`}
+              title="Total Quantum: Unified Audio-Video Master DSP"
+            >
+              <Zap className="w-4 h-4 fill-current" />
+            </button>
+
+            {/* WIRELESS TV CAST BUTTON */}
+            <button
+              onClick={() => setShowCastModal(true)}
+              disabled={!selectedVideo}
+              className={`w-9 h-9 rounded-full border flex items-center justify-center cursor-pointer transition-all disabled:opacity-20 disabled:pointer-events-none active:scale-90 ${
+                connectedCastDevice
+                  ? "bg-amber-500/25 border-amber-500 text-amber-300 shadow-[0_0_14px_rgba(245,158,11,0.5)] animate-pulse"
+                  : "bg-transparent border-stone-850 hover:border-amber-500/60 text-stone-300 hover:text-amber-400"
+              }`}
+              title="Cast Video & Audio to Smart TV / Streaming Device"
+            >
+              <Cast className="w-4 h-4" />
             </button>
 
             {/* FULL SCREEN TOGGLE */}
@@ -1390,6 +1547,93 @@ export const VideoView: React.FC<VideoViewProps> = ({
 
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {showDeleteConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+            onClick={() => setShowDeleteConfirm(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#181110] border border-red-500/30 rounded-2xl p-6 max-w-md w-full shadow-2xl flex flex-col gap-4 text-left"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 text-red-400">
+                <div className="p-2.5 bg-red-500/10 rounded-xl border border-red-500/20">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white font-sans">Confirm Deletion</h3>
+                  <p className="text-xs text-slate-400">
+                    {(pendingDeleteIds.length > 0 ? pendingDeleteIds.length : selectedVideoIds.length) === 1 
+                      ? "Are you sure you want to delete this video?" 
+                      : `Are you sure you want to delete these ${pendingDeleteIds.length > 0 ? pendingDeleteIds.length : selectedVideoIds.length} videos?`}
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-300 leading-relaxed bg-black/30 p-3 rounded-xl border border-white/5">
+                This item will be permanently removed from your videos list and local storage. This action cannot be undone.
+              </p>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDelete}
+                  className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-semibold shadow-lg shadow-red-600/30 transition-all cursor-pointer"
+                >
+                  Yes, Delete
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Cast to Device Overlay Modal */}
+      <CastModal
+        isOpen={showCastModal}
+        onClose={() => setShowCastModal(false)}
+        videoElement={videoRawRef.current}
+        videoName={selectedVideo?.name}
+        videoUrl={selectedVideo?.url || resolvedVideoUrl}
+        connectedDevice={connectedCastDevice}
+        onSelectDevice={(device) => setConnectedCastDevice(device)}
+      />
+
+      {/* Total Quantum Console Overlay */}
+      <TotalQuantumConsole
+        isOpen={showQuantumConsole}
+        onClose={() => setShowQuantumConsole(false)}
+        isTotalQuantumActive={isTotalQuantumActive}
+        setIsTotalQuantumActive={setIsTotalQuantumActive || (() => {})}
+        activeModel={activeModel}
+        setActiveModel={setActiveModel}
+        upscaleTarget={upscaleTarget === "HD" ? "1080p" : upscaleTarget === "2K" ? "native" : upscaleTarget === "4K" ? "4K" : "8K"}
+        setUpscaleTarget={(t) => setUpscaleTarget(t === "1080p" ? "HD" : t === "native" ? "2K" : t === "4K" ? "4K" : "8K")}
+        colorEnhancement={colorEnhancement === "vivid" ? "vibrant" : colorEnhancement === "hdr" ? "hdr_pop" : colorEnhancement === "lowlight" ? "cinematic" : "off"}
+        setColorEnhancement={(c) => setColorEnhancement(c === "vibrant" ? "vivid" : c === "hdr_pop" ? "hdr" : c === "cinematic" ? "lowlight" : "none")}
+        smoothMotion={smoothMotion}
+        setSmoothMotion={setSmoothMotion}
+        turboMode={turboMode}
+        setTurboMode={setTurboMode}
+        dspSettings={dspSettings}
+        setDspSettings={setDspSettings}
+        onUpdateBassBoost={onUpdateBassBoost}
+        onUpdateEqBand={onUpdateEqBand}
+      />
     </motion.div>
   );
 };

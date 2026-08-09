@@ -89,7 +89,7 @@ export const VideoThumbnail: React.FC<VideoThumbnailProps> = ({ video, className
         };
 
         const onError = (e: any) => {
-          console.warn("Video metadata loading failed, falling back to static thumbnail:", e);
+          console.warn("Video metadata loading failed, falling back to static thumbnail:", e?.message || e?.type || "error");
           if (isCurrent) {
             setError(true);
             setLoading(false);

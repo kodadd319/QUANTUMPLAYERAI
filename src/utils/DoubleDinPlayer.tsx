@@ -14,7 +14,8 @@ import {
   Radio,
   Sliders,
   Sparkles,
-  Music
+  Music,
+  Trash2
 } from "lucide-react";
 import { Track } from "../types";
 import { getAlbumArtForTrack } from "./albumArt";
@@ -36,6 +37,7 @@ interface DoubleDinPlayerProps {
   headunitTime: string;
   isMaxBass: boolean;
   onToggleMaxBass: () => void;
+  onDeleteTrack?: (trackId: string) => void;
 }
 
 export function DoubleDinPlayer({
@@ -54,9 +56,11 @@ export function DoubleDinPlayer({
   onToggleShuffle,
   headunitTime,
   isMaxBass,
-  onToggleMaxBass
+  onToggleMaxBass,
+  onDeleteTrack
 }: DoubleDinPlayerProps) {
   const [isMuted, setIsMuted] = useState(false);
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const prevVolumeRef = useRef(volume || 0.5);
 
   // Formatting helper
@@ -224,9 +228,20 @@ export function DoubleDinPlayer({
                 </span>
 
                 {/* Song Title (Bigger size: text-2xl base, text-3xl sm) */}
-                <h2 className="text-2xl sm:text-3xl font-sans font-semibold text-white tracking-normal leading-tight truncate max-w-full uppercase drop-shadow-[0_2px_10px_rgba(255,255,255,0.05)]">
-                  {currentTrack.name}
-                </h2>
+                <div className="flex items-center justify-center gap-2 max-w-full px-2">
+                  <h2 className="text-2xl sm:text-3xl font-sans font-semibold text-white tracking-normal leading-tight truncate uppercase drop-shadow-[0_2px_10px_rgba(255,255,255,0.05)]">
+                    {currentTrack.name}
+                  </h2>
+                  {onDeleteTrack && (
+                    <button
+                      onClick={() => setShowConfirmDelete(true)}
+                      className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 hover:text-red-300 transition-all cursor-pointer shrink-0"
+                      title="Delete this track"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
 
                 {/* Artist Name (Bigger size: text-sm base, text-lg sm) */}
                 <p className="text-sm sm:text-base text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.4)] font-sans font-semibold tracking-widest uppercase mt-2">
@@ -425,6 +440,63 @@ export function DoubleDinPlayer({
           </div>
         ))}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {showConfirmDelete && currentTrack && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+            onClick={() => setShowConfirmDelete(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#181110] border border-red-500/30 rounded-2xl p-6 max-w-md w-full shadow-2xl flex flex-col gap-4 text-left"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 text-red-400">
+                <div className="p-2.5 bg-red-500/10 rounded-xl border border-red-500/20">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white font-sans">Delete Track</h3>
+                  <p className="text-xs text-slate-400">
+                    Are you sure you want to delete "{currentTrack.name}"?
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-300 leading-relaxed bg-black/30 p-3 rounded-xl border border-white/5">
+                This track will be permanently removed from your library and local storage.
+              </p>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  onClick={() => setShowConfirmDelete(false)}
+                  className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    setShowConfirmDelete(false);
+                    if (onDeleteTrack && currentTrack) {
+                      onDeleteTrack(currentTrack.id);
+                    }
+                  }}
+                  className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-semibold shadow-lg shadow-red-600/30 transition-all cursor-pointer"
+                >
+                  Yes, Delete
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
     </div>
   );

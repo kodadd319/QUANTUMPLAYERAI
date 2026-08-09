@@ -128,6 +128,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
 
   // Long press timer refs & selection mode triggers
   const longPressTimers = useRef<Record<string, any>>({});
@@ -364,9 +365,9 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
     }
   };
 
-  // 1. Filter out sample/built-in tracks to get user uploaded music
+  // 1. All tracks in playlist for My Music view
   const uploadedTracks = useMemo(() => {
-    return playlist.filter(track => !track.id.startsWith("sample-"));
+    return playlist;
   }, [playlist]);
 
   // Determine current active track details if playing from the user's list
@@ -488,15 +489,27 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
     }
   };
 
+  const handleSingleDelete = (trackId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setPendingDeleteIds([trackId]);
+    setShowDeleteConfirm(true);
+  };
+
   const handleBatchDelete = () => {
     if (selectedTrackIds.length === 0) return;
+    setPendingDeleteIds([...selectedTrackIds]);
     setShowDeleteConfirm(true);
   };
 
   const confirmDelete = async () => {
-    const idsToDelete = [...selectedTrackIds];
-    setSelectedTrackIds([]);
-    setIsSelectionMode(false);
+    const idsToDelete = pendingDeleteIds.length > 0 ? pendingDeleteIds : selectedTrackIds;
+    if (idsToDelete.length === 0) return;
+
+    setPendingDeleteIds([]);
+    setSelectedTrackIds(prev => prev.filter(id => !idsToDelete.includes(id)));
+    if (selectedTrackIds.length <= idsToDelete.length) {
+      setIsSelectionMode(false);
+    }
     setShowDeleteConfirm(false);
     await deleteSelectedTracks(idsToDelete);
   };
@@ -707,8 +720,15 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mt-2">
         {/* Tab Buttons (Relaxed, no hard frames, floating accent hover) */}
         <div className="flex flex-wrap gap-2.5">
-          {(["all", "artist", "album", "genre"] as const).map((catName) => {
-            const label = catName === "all" ? "All Songs" : catName;
+          {(["all", "artist", "album", "genre", "releaseDate"] as const).map((catName) => {
+            const labelMap: Record<string, string> = {
+              all: "All Songs",
+              artist: "Artists",
+              album: "Albums",
+              genre: "Genres",
+              releaseDate: "Added Date"
+            };
+            const label = labelMap[catName] || catName;
             const isActive = viewCategory === catName;
             return (
               <button
@@ -719,8 +739,8 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                 }}
                 className={`px-5 py-2.5 rounded-xl font-sans text-xs uppercase tracking-wide transition-all duration-200 cursor-pointer ${
                   isActive
-                    ? "bg-white/10 text-white font-semibold border border-slate-400"
-                    : "text-slate-400 hover:text-white hover:bg-white/[0.02]"
+                    ? "bg-white/10 text-white font-semibold border border-slate-400 shadow-md"
+                    : "text-slate-300 hover:text-white hover:bg-white/[0.05]"
                 }`}
               >
                 {label}
@@ -835,11 +855,11 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                             : "bg-[#0a0504]/50 hover:bg-[#150e0d]/50 border-stone-850/60 hover:border-slate-550/30"
                       }`}
                     >
-                      <div className="flex items-center gap-3.5 max-w-[80%] truncate">
+                      <div className="flex-1 min-w-0 flex items-center gap-3.5">
                         <button
                            onClick={(e) => toggleSelectTrack(track.id, e)}
                            onMouseDown={(e) => e.stopPropagation()} // Prevent long press triggering from checkbox click
-                           className={`text-slate-400 hover:text-white p-0.5 focus:outline-none cursor-pointer transition-opacity duration-200 ${
+                           className={`text-slate-400 hover:text-white p-0.5 focus:outline-none cursor-pointer transition-opacity duration-200 shrink-0 ${
                              isSelectionMode ? "opacity-100 text-amber-500" : "opacity-25 sm:opacity-0 sm:group-hover:opacity-60 hover:!opacity-100"
                            }`}
                         >
@@ -854,7 +874,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                         <div className="w-10 h-10 rounded-lg overflow-hidden bg-white/5 border border-white/10 shrink-0 flex items-center justify-center relative">
                           <img 
                             src={getAlbumArtForTrack(track)} 
-                            alt={track.name}
+                            alt={track.name || "Track thumbnail"}
                             className="w-full h-full object-cover"
                             referrerPolicy="no-referrer"
                             onError={(e) => {
@@ -863,11 +883,11 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                           />
                         </div>
 
-                        <div className="truncate flex flex-col gap-0.5">
-                          <span className={`text-[13px] font-sans font-semibold truncate ${isPlayingActive ? "text-white drop-shadow-[0_0_4px_rgba(255,255,255,0.45)]" : "text-white group-hover:text-white transition-colors"}`}>
-                            {track.name}
+                        <div className="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
+                          <span className={`text-sm sm:text-base font-sans font-bold truncate block ${isPlayingActive ? "text-amber-300 drop-shadow-[0_0_6px_rgba(245,158,11,0.5)]" : "text-white group-hover:text-amber-300 transition-colors"}`}>
+                            {track.name || (track as any).title || "Untitled Track"}
                           </span>
-                          <span className="text-xs text-slate-400 font-light truncate">
+                          <span className="text-xs font-sans font-medium text-slate-200 group-hover:text-slate-100 transition-colors truncate block">
                             {track.artist || "Unknown Artist"} • {track.album || "Unknown Album"} • {track.genre || "Unknown Genre"}
                           </span>
                         </div>
@@ -884,6 +904,14 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                         <span className="text-xs text-slate-400 font-sans font-medium">
                           {track.duration ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}` : ""}
                         </span>
+                        <button
+                          onClick={(e) => handleSingleDelete(track.id, e)}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          title="Delete track"
+                          className="p-1.5 rounded-lg bg-black/40 hover:bg-red-600/90 border border-white/10 text-slate-400 hover:text-white transition-all cursor-pointer opacity-80 sm:opacity-0 sm:group-hover:opacity-100"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
                   );
@@ -936,11 +964,11 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                                       : "hover:bg-white/[0.02]"
                                 }`}
                               >
-                                <div className="flex items-center gap-3 truncate max-w-[80%]">
+                                <div className="flex-1 min-w-0 flex items-center gap-3">
                                   <button
                                     onClick={(e) => toggleSelectTrack(track.id, e)}
                                     onMouseDown={(e) => e.stopPropagation()}
-                                    className={`text-slate-450 hover:text-white p-0.5 focus:outline-none cursor-pointer transition-opacity duration-200 ${
+                                    className={`text-slate-450 hover:text-white p-0.5 focus:outline-none cursor-pointer transition-opacity duration-200 shrink-0 ${
                                       isSelectionMode ? "opacity-100 text-amber-500" : "opacity-25 sm:opacity-0 sm:group-hover:opacity-60 hover:!opacity-100"
                                     }`}
                                   >
@@ -955,7 +983,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                                   <div className="w-8 h-8 rounded-lg overflow-hidden bg-white/5 border border-white/10 shrink-0 flex items-center justify-center relative">
                                     <img 
                                       src={getAlbumArtForTrack(track)} 
-                                      alt={track.name}
+                                      alt={track.name || "Track thumbnail"}
                                       className="w-full h-full object-cover"
                                       referrerPolicy="no-referrer"
                                       onError={(e) => {
@@ -964,18 +992,28 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                                     />
                                   </div>
 
-                                  <div className="truncate flex flex-col">
-                                    <span className={`text-[12px] font-sans font-medium truncate ${isPlayingActive ? "text-white" : "text-slate-200"}`}>
-                                      {track.name}
+                                  <div className="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
+                                    <span className={`text-sm font-sans font-bold truncate block ${isPlayingActive ? "text-amber-300 drop-shadow-[0_0_6px_rgba(245,158,11,0.5)]" : "text-white group-hover:text-amber-300 transition-colors"}`}>
+                                      {track.name || (track as any).title || "Untitled Track"}
                                     </span>
-                                    <span className="text-[10px] text-slate-500 font-light mt-0.5">
+                                    <span className="text-xs font-sans font-medium text-slate-200 group-hover:text-slate-100 transition-colors truncate block">
                                       {track.album ? `${track.album}` : "Unknown Album"}
                                     </span>
                                   </div>
                                 </div>
-                                <span className="text-xs text-slate-500 font-sans font-medium">
-                                  {track.duration ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}` : ""}
-                                </span>
+                                <div className="flex items-center gap-3">
+                                  <span className="text-xs text-slate-500 font-sans font-medium">
+                                    {track.duration ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}` : ""}
+                                  </span>
+                                  <button
+                                    onClick={(e) => handleSingleDelete(track.id, e)}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    title="Delete track"
+                                    className="p-1.5 rounded-lg bg-black/40 hover:bg-red-600/90 border border-white/10 text-slate-400 hover:text-white transition-all cursor-pointer opacity-80 sm:opacity-0 sm:group-hover:opacity-100"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               </div>
                             );
                           })}
@@ -1032,11 +1070,11 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                                       : "hover:bg-white/[0.02]"
                                 }`}
                               >
-                                <div className="flex items-center gap-3 truncate max-w-[80%]">
+                                <div className="flex-1 min-w-0 flex items-center gap-3">
                                   <button
                                     onClick={(e) => toggleSelectTrack(track.id, e)}
                                     onMouseDown={(e) => e.stopPropagation()}
-                                    className={`text-slate-450 hover:text-white p-0.5 focus:outline-none cursor-pointer transition-opacity duration-200 ${
+                                    className={`text-slate-450 hover:text-white p-0.5 focus:outline-none cursor-pointer transition-opacity duration-200 shrink-0 ${
                                       isSelectionMode ? "opacity-100 text-amber-500" : "opacity-25 sm:opacity-0 sm:group-hover:opacity-60 hover:!opacity-100"
                                     }`}
                                   >
@@ -1051,7 +1089,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                                   <div className="w-8 h-8 rounded-lg overflow-hidden bg-white/5 border border-white/10 shrink-0 flex items-center justify-center relative">
                                     <img 
                                       src={getAlbumArtForTrack(track)} 
-                                      alt={track.name}
+                                      alt={track.name || "Track thumbnail"}
                                       className="w-full h-full object-cover"
                                       referrerPolicy="no-referrer"
                                       onError={(e) => {
@@ -1060,18 +1098,28 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                                     />
                                   </div>
 
-                                  <div className="truncate flex flex-col">
-                                    <span className={`text-[12px] font-sans font-medium truncate ${isPlayingActive ? "text-white" : "text-slate-200"}`}>
-                                      {track.name}
+                                  <div className="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
+                                    <span className={`text-sm font-sans font-bold truncate block ${isPlayingActive ? "text-amber-300 drop-shadow-[0_0_6px_rgba(245,158,11,0.5)]" : "text-white group-hover:text-amber-300 transition-colors"}`}>
+                                      {track.name || (track as any).title || "Untitled Track"}
                                     </span>
-                                    <span className="text-[10px] text-slate-500 font-light mt-0.5">
+                                    <span className="text-xs font-sans font-medium text-slate-200 group-hover:text-slate-100 transition-colors truncate block">
                                       {track.artist ? `${track.artist}` : "Unknown Artist"}
                                     </span>
                                   </div>
                                 </div>
-                                <span className="text-xs text-slate-500 font-sans font-medium">
-                                  {track.duration ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}` : ""}
-                                </span>
+                                <div className="flex items-center gap-3">
+                                  <span className="text-xs text-slate-500 font-sans font-medium">
+                                    {track.duration ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}` : ""}
+                                  </span>
+                                  <button
+                                    onClick={(e) => handleSingleDelete(track.id, e)}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    title="Delete track"
+                                    className="p-1.5 rounded-lg bg-black/40 hover:bg-red-600/90 border border-white/10 text-slate-400 hover:text-white transition-all cursor-pointer opacity-80 sm:opacity-0 sm:group-hover:opacity-100"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               </div>
                             );
                           })}
@@ -1132,11 +1180,11 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                                       : "hover:bg-white/[0.02]"
                                 }`}
                               >
-                                <div className="flex items-center gap-3 truncate max-w-[80%]">
+                                <div className="flex-1 min-w-0 flex items-center gap-3">
                                   <button
                                     onClick={(e) => toggleSelectTrack(track.id, e)}
                                     onMouseDown={(e) => e.stopPropagation()}
-                                    className={`text-slate-450 hover:text-white p-0.5 focus:outline-none cursor-pointer transition-opacity duration-200 ${
+                                    className={`text-slate-450 hover:text-white p-0.5 focus:outline-none cursor-pointer transition-opacity duration-200 shrink-0 ${
                                       isSelectionMode ? "opacity-100 text-amber-500" : "opacity-25 sm:opacity-0 sm:group-hover:opacity-60 hover:!opacity-100"
                                     }`}
                                   >
@@ -1152,7 +1200,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                                     {track.imageUrl || track.albumArtUrl ? (
                                       <img 
                                         src={track.imageUrl || track.albumArtUrl || ""} 
-                                        alt={track.name}
+                                        alt={track.name || "Track thumbnail"}
                                         className="w-full h-full object-cover"
                                         referrerPolicy="no-referrer"
                                         onError={(e) => {
@@ -1164,18 +1212,28 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                                     )}
                                   </div>
 
-                                  <div className="truncate flex flex-col">
-                                    <span className={`text-[12px] font-sans font-medium truncate ${isPlayingActive ? "text-white" : "text-slate-200"}`}>
-                                      {track.name}
+                                  <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                                    <span className={`text-xs font-sans font-semibold truncate block ${isPlayingActive ? "text-amber-300 font-bold" : "text-white group-hover:text-amber-200 transition-colors"}`}>
+                                      {track.name || (track as any).title || "Untitled Track"}
                                     </span>
-                                    <span className="text-[10px] text-slate-500 font-light mt-0.5">
+                                    <span className="text-[11px] text-slate-300 font-normal truncate block">
                                       {track.artist ? `${track.artist}` : "Unknown Artist"} • {track.album ? `${track.album}` : "Unknown Album"}
                                     </span>
                                   </div>
                                 </div>
-                                <span className="text-xs text-slate-500 font-sans font-medium">
-                                  {track.duration ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}` : ""}
-                                </span>
+                                <div className="flex items-center gap-3">
+                                  <span className="text-xs text-slate-500 font-sans font-medium">
+                                    {track.duration ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}` : ""}
+                                  </span>
+                                  <button
+                                    onClick={(e) => handleSingleDelete(track.id, e)}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    title="Delete track"
+                                    className="p-1.5 rounded-lg bg-black/40 hover:bg-red-600/90 border border-white/10 text-slate-400 hover:text-white transition-all cursor-pointer opacity-80 sm:opacity-0 sm:group-hover:opacity-100"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               </div>
                             );
                           })}
@@ -1232,11 +1290,11 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                                       : "hover:bg-white/[0.02]"
                                 }`}
                               >
-                                <div className="flex items-center gap-3 truncate max-w-[80%]">
+                                <div className="flex-1 min-w-0 flex items-center gap-3">
                                   <button
                                     onClick={(e) => toggleSelectTrack(track.id, e)}
                                     onMouseDown={(e) => e.stopPropagation()}
-                                    className={`text-slate-450 hover:text-white p-0.5 focus:outline-none cursor-pointer transition-opacity duration-200 ${
+                                    className={`text-slate-450 hover:text-white p-0.5 focus:outline-none cursor-pointer transition-opacity duration-200 shrink-0 ${
                                       isSelectionMode ? "opacity-100 text-amber-500" : "opacity-25 sm:opacity-0 sm:group-hover:opacity-60 hover:!opacity-100"
                                     }`}
                                   >
@@ -1252,7 +1310,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                                     {track.imageUrl || track.albumArtUrl ? (
                                       <img 
                                         src={track.imageUrl || track.albumArtUrl || ""} 
-                                        alt={track.name}
+                                        alt={track.name || "Track thumbnail"}
                                         className="w-full h-full object-cover"
                                         referrerPolicy="no-referrer"
                                         onError={(e) => {
@@ -1264,18 +1322,28 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                                     )}
                                   </div>
 
-                                  <div className="truncate flex flex-col">
-                                    <span className={`text-[12px] font-sans font-medium truncate ${isPlayingActive ? "text-white" : "text-slate-200"}`}>
-                                      {track.name}
+                                  <div className="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
+                                    <span className={`text-sm font-sans font-bold truncate block ${isPlayingActive ? "text-amber-300 drop-shadow-[0_0_6px_rgba(245,158,11,0.5)]" : "text-white group-hover:text-amber-300 transition-colors"}`}>
+                                      {track.name || (track as any).title || "Untitled Track"}
                                     </span>
-                                    <span className="text-[10px] text-slate-500 font-light mt-0.5">
+                                    <span className="text-xs font-sans font-medium text-slate-200 group-hover:text-slate-100 transition-colors truncate block">
                                       {track.artist ? `${track.artist}` : "Unknown Artist"} • {track.album ? `${track.album}` : "Unknown Album"}
                                     </span>
                                   </div>
                                 </div>
-                                <span className="text-xs text-slate-500 font-sans font-medium">
-                                  {track.duration ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}` : ""}
-                                </span>
+                                <div className="flex items-center gap-3">
+                                  <span className="text-xs text-slate-500 font-sans font-medium">
+                                    {track.duration ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}` : ""}
+                                  </span>
+                                  <button
+                                    onClick={(e) => handleSingleDelete(track.id, e)}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    title="Delete track"
+                                    className="p-1.5 rounded-lg bg-black/40 hover:bg-red-600/90 border border-white/10 text-slate-400 hover:text-white transition-all cursor-pointer opacity-80 sm:opacity-0 sm:group-hover:opacity-100"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               </div>
                             );
                           })}
@@ -1320,7 +1388,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
               </div>
 
               <p className="text-xs text-slate-300 font-light leading-relaxed mb-6">
-                Are you sure you want to permanently remove the selected <strong className="text-white font-semibold">{selectedTrackIds.length} track(s)</strong> from your local music library storage?
+                Are you sure you want to permanently remove the selected <strong className="text-white font-semibold">{(pendingDeleteIds.length > 0 ? pendingDeleteIds.length : selectedTrackIds.length)} track(s)</strong> from your local music library storage?
               </p>
 
               <div className="flex items-center justify-end gap-3">

@@ -46,7 +46,6 @@ import { MyMusicView } from "./components/MyMusicView";
 import { UpgradeView } from "./components/UpgradeView";
 import { AiEnhancementView } from "./components/AiEnhancementView";
 import { AiVideoEnhancementView } from "./components/AiVideoEnhancementView";
-import { AiVideoMirrorView } from "./components/AiVideoMirrorView";
 import { VideoView } from "./components/VideoView";
 import { MyVideosView } from "./components/MyVideosView";
 import { motion, AnimatePresence } from "motion/react"; 
@@ -322,7 +321,7 @@ const BUILTIN_PRESETS: Preset[] = [
   }
 ]; 
 
-export default function App() {   
+function MainApp() {   
   const [currentView, setCurrentView] = useState<"landing" | "auth" | "player" | "mymusic" | "myvideos" | "privacy" | "agreement" | "upgrade" | "ai_enhancement" | "ai_enhancement_audio" | "ai_enhancement_video" | "video">("landing");   
   const [viewHistory, setViewHistory] = useState<string[]>([]);
   const isGoingBackRef = useRef<boolean>(false);
@@ -689,154 +688,143 @@ export default function App() {
       let songs: Track[] = [];
       let vids: any[] = [];
 
-      if (activeUser) {
-        // 1. Fetch metadata from Firestore for user-scoped profile
-        const tracksQuery = query(collection(db, "tracks"), where("uid", "==", activeUser.uid));
-        const tracksSnap = await getDocs(tracksQuery);
-        const firestoreTracksList: any[] = [];
-        tracksSnap.forEach((doc) => {
-          firestoreTracksList.push({ id: doc.id, ...doc.data() });
+      // Build video list: Always include ALL local videos stored in IndexedDB first
+      const vidsMap = new Map<string, any>();
+      for (const localVid of dbVideos) {
+        vidsMap.set(localVid.id, {
+          id: localVid.id,
+          name: localVid.name || "Local Video",
+          url: `local-db://${localVid.id}`,
+          duration: localVid.duration || "Local File",
+          creator: localVid.creator || "Local Creator",
+          category: localVid.category || "Personal Video",
+          thumbnail: localVid.thumbnail || "",
+          createdAt: localVid.createdAt || new Date().toISOString(),
+          blob: localVid.blob
         });
-
-        const videosQuery = query(collection(db, "videos"), where("uid", "==", activeUser.uid));
-        const videosSnap = await getDocs(videosQuery);
-        const firestoreVideosList: any[] = [];
-        videosSnap.forEach((doc) => {
-          firestoreVideosList.push({ id: doc.id, ...doc.data() });
-        });
-
-        // 2. Map Firestore tracks and enrich with local Blobs if available
-        const localTracksMap = new Map(dbTracks.map((t) => [t.id, t]));
-        songs = firestoreTracksList.map((t) => {
-          const localTrack = localTracksMap.get(t.id);
-          return {
-            id: t.id,
-            name: t.name,
-            artist: t.artist || "Unknown Artist",
-            album: t.album || "Unknown Album",
-            duration: t.duration || 180,
-            genre: t.genre || "Bass Accent",
-            url: t.url || `local-db://${t.id}`,
-            imageUrl: t.imageUrl || "",
-            albumArtUrl: t.albumArtUrl || t.imageUrl || null,
-            file: localTrack?.blob ? new File([localTrack.blob], t.name, { type: localTrack.blob.type || "audio/mpeg" }) : undefined
-          };
-        });
-
-        // Self-healing: check if there are local tracks with activeUser.uid that are not yet in Firestore, and sync them
-        const syncedTrackIds = new Set(firestoreTracksList.map(t => t.id));
-        for (const localTrack of dbTracks) {
-          if (localTrack.uid === activeUser.uid && !syncedTrackIds.has(localTrack.id)) {
-            try {
-              await setDoc(doc(db, "tracks", localTrack.id), {
-                uid: activeUser.uid,
-                name: localTrack.name,
-                url: `local-db://${localTrack.id}`,
-                artist: localTrack.artist,
-                album: localTrack.album,
-                genre: localTrack.genre,
-                duration: localTrack.duration,
-                imageUrl: localTrack.imageUrl || "",
-                albumArtUrl: localTrack.albumArtUrl || null,
-                createdAt: localTrack.createdAt || new Date().toISOString()
-              });
-              console.log("Self-healing: synced local track to Firestore:", localTrack.id);
-              songs.push({
-                id: localTrack.id,
-                name: localTrack.name,
-                artist: localTrack.artist,
-                album: localTrack.album,
-                duration: localTrack.duration,
-                genre: localTrack.genre,
-                url: `local-db://${localTrack.id}`,
-                imageUrl: localTrack.imageUrl,
-                albumArtUrl: localTrack.albumArtUrl || localTrack.imageUrl || null,
-                file: new File([localTrack.blob], localTrack.name, { type: localTrack.blob.type || "audio/mpeg" })
-              });
-            } catch (err) {
-              console.error("Self-healing track sync error:", err);
-            }
-          }
-        }
-
-        // 3. Map Firestore videos and enrich with local Blobs if available
-        const localVideosMap = new Map(dbVideos.map((v) => [v.id, v]));
-        vids = firestoreVideosList.map((v) => {
-          const localVid = localVideosMap.get(v.id);
-          return {
-            id: v.id,
-            name: v.name,
-            url: `local-db://${v.id}`,
-            duration: v.duration || "Local File",
-            creator: v.creator || "Local Creator",
-            category: v.category || "Personal Video",
-            thumbnail: v.thumbnail || "",
-            createdAt: v.createdAt,
-            blob: localVid?.blob
-          };
-        });
-
-        // Self-healing: sync missing local videos to Firestore
-        const syncedVidIds = new Set(firestoreVideosList.map(v => v.id));
-        for (const localVid of dbVideos) {
-          if (localVid.uid === activeUser.uid && !syncedVidIds.has(localVid.id)) {
-            try {
-              await setDoc(doc(db, "videos", localVid.id), {
-                uid: activeUser.uid,
-                name: localVid.name,
-                url: `local-db://${localVid.id}`,
-                duration: localVid.duration,
-                creator: localVid.creator,
-                category: localVid.category,
-                thumbnail: localVid.thumbnail || "",
-                createdAt: localVid.createdAt || new Date().toISOString()
-              });
-              console.log("Self-healing: synced local video to Firestore:", localVid.id);
-              vids.push({
-                id: localVid.id,
-                name: localVid.name,
-                url: `local-db://${localVid.id}`,
-                duration: localVid.duration,
-                creator: localVid.creator,
-                category: localVid.category,
-                thumbnail: localVid.thumbnail,
-                createdAt: localVid.createdAt,
-                blob: localVid.blob
-              });
-            } catch (err) {
-              console.error("Self-healing video sync error:", err);
-            }
-          }
-        }
-      } else {
-        // Guest mode: only show tracks/videos with uid "guest" or empty/undefined
-        const guestTracks = dbTracks.filter((t) => !t.uid || t.uid === "guest");
-        songs = guestTracks.map((t) => ({
-          id: t.id,
-          name: t.name,
-          artist: t.artist,
-          album: t.album,
-          duration: t.duration,
-          genre: t.genre,
-          url: (t as any).path || (t as any).url || `local-db://${t.id}`,
-          imageUrl: t.imageUrl,
-          albumArtUrl: t.albumArtUrl || t.imageUrl || null,
-          file: t.blob ? new File([t.blob], t.name, { type: t.blob.type || "audio/mpeg" }) : undefined
-        }));
-
-        const guestVideos = dbVideos.filter((v) => !v.uid || v.uid === "guest");
-        vids = guestVideos.map((v) => ({
-          id: v.id,
-          name: v.name,
-          url: `local-db://${v.id}`,
-          duration: v.duration,
-          creator: v.creator,
-          category: v.category,
-          thumbnail: v.thumbnail,
-          createdAt: v.createdAt,
-          blob: v.blob
-        }));
       }
+
+      // Build track list: Always include ALL local tracks stored in IndexedDB first
+      const songsMap = new Map<string, any>();
+      for (const localTrack of dbTracks) {
+        songsMap.set(localTrack.id, {
+          id: localTrack.id,
+          name: localTrack.name || "Local Track",
+          artist: localTrack.artist || "Unknown Artist",
+          album: localTrack.album || "Unknown Album",
+          duration: localTrack.duration || 180,
+          genre: localTrack.genre || "Bass Accent",
+          url: `local-db://${localTrack.id}`,
+          imageUrl: localTrack.imageUrl || "",
+          albumArtUrl: localTrack.albumArtUrl || localTrack.imageUrl || null,
+          file: localTrack.blob ? new File([localTrack.blob], localTrack.name, { type: localTrack.blob.type || "audio/mpeg" }) : undefined
+        });
+      }
+
+      if (activeUser) {
+        const remoteTrackIds = new Set<string>();
+        const remoteVideoIds = new Set<string>();
+
+        // Fetch remote metadata from Firestore for active user
+        try {
+          const tracksQuery = query(collection(db, "tracks"), where("uid", "==", activeUser.uid));
+          const tracksSnap = await getDocs(tracksQuery);
+          tracksSnap.forEach((docSnap) => {
+            remoteTrackIds.add(docSnap.id);
+            const data = docSnap.data();
+            const existing = songsMap.get(docSnap.id);
+            if (existing) {
+              existing.name = data.name || existing.name;
+              existing.artist = data.artist || existing.artist;
+              existing.album = data.album || existing.album;
+              existing.duration = data.duration || existing.duration;
+              existing.genre = data.genre || existing.genre;
+              existing.imageUrl = data.imageUrl || existing.imageUrl;
+              existing.albumArtUrl = data.albumArtUrl || existing.albumArtUrl;
+            } else {
+              songsMap.set(docSnap.id, {
+                id: docSnap.id,
+                name: data.name || "Cloud Track",
+                artist: data.artist || "Unknown Artist",
+                album: data.album || "Unknown Album",
+                duration: data.duration || 180,
+                genre: data.genre || "Bass Accent",
+                url: data.url || `local-db://${docSnap.id}`,
+                imageUrl: data.imageUrl || "",
+                albumArtUrl: data.albumArtUrl || data.imageUrl || null
+              });
+            }
+          });
+        } catch (fsErr) {
+          console.warn("Firestore tracks fetch notice:", fsErr);
+        }
+
+        try {
+          const videosQuery = query(collection(db, "videos"), where("uid", "==", activeUser.uid));
+          const videosSnap = await getDocs(videosQuery);
+          videosSnap.forEach((docSnap) => {
+            remoteVideoIds.add(docSnap.id);
+            const data = docSnap.data();
+            const existing = vidsMap.get(docSnap.id);
+            if (existing) {
+              existing.name = data.name || existing.name;
+              existing.creator = data.creator || existing.creator;
+              existing.category = data.category || existing.category;
+              existing.duration = data.duration || existing.duration;
+              existing.thumbnail = data.thumbnail || existing.thumbnail;
+            } else {
+              vidsMap.set(docSnap.id, {
+                id: docSnap.id,
+                name: data.name || "Cloud Video",
+                url: data.url || `local-db://${docSnap.id}`,
+                duration: data.duration || "Local File",
+                creator: data.creator || "Cloud Creator",
+                category: data.category || "Personal Video",
+                thumbnail: data.thumbnail || "",
+                createdAt: data.createdAt || new Date().toISOString()
+              });
+            }
+          });
+        } catch (fsErr) {
+          console.warn("Firestore videos fetch notice:", fsErr);
+        }
+
+        // Background sync missing local media to Firestore only if not already present
+        for (const localVid of dbVideos) {
+          if (!remoteVideoIds.has(localVid.id)) {
+            setDoc(doc(db, "videos", localVid.id), {
+              uid: activeUser.uid,
+              name: localVid.name || "Local Video",
+              url: `local-db://${localVid.id}`,
+              duration: localVid.duration || "Local File",
+              creator: localVid.creator || "Local Creator",
+              category: localVid.category || "Personal Video",
+              thumbnail: localVid.thumbnail || "",
+              createdAt: localVid.createdAt || new Date().toISOString()
+            }).catch(err => console.warn("Background video sync notice:", err));
+          }
+        }
+
+        for (const localTrack of dbTracks) {
+          if (!remoteTrackIds.has(localTrack.id)) {
+            setDoc(doc(db, "tracks", localTrack.id), {
+              uid: activeUser.uid,
+              name: localTrack.name || "Local Track",
+              url: `local-db://${localTrack.id}`,
+              artist: localTrack.artist || "Unknown Artist",
+              album: localTrack.album || "Unknown Album",
+              genre: localTrack.genre || "Bass Accent",
+              duration: localTrack.duration || 180,
+              imageUrl: localTrack.imageUrl || "",
+              albumArtUrl: localTrack.albumArtUrl || null,
+              createdAt: localTrack.createdAt || new Date().toISOString()
+            }).catch(err => console.warn("Background track sync notice:", err));
+          }
+        }
+      }
+
+      songs = Array.from(songsMap.values());
+      vids = Array.from(vidsMap.values());
 
       setFirestoreTracks(songs);
       setFirestoreVideos(vids);
@@ -924,7 +912,36 @@ export default function App() {
         const unsubscribeSettings = onSnapshot(userDocRef, (docSnap) => {           
           if (docSnap.exists()) {             
             const data = docSnap.data();             
-            lastSavedSettingsRef.current = data;
+            const defaultVehicle = {
+              vehicleType: "Sedan",
+              subwooferConfig: "Single 12\" Sub",
+              soundPreference: "SQL (Sound Quality Loud)"
+            };
+            const defaultDsp = {
+              eqBands: [4, 1, 0, 2, 3],
+              bassBoost: 50.0,
+              reverbWet: 0.08,
+              delayOffsetMs: 12,
+              highPassFilterHz: 30,
+              subCrossoverHz: 80,
+              justification: "ElitePlayer setup loaded."
+            };
+
+            const normalizedSettings = {
+              accentTheme: data.accentTheme || "cyan",
+              volume: typeof data.volume === "number" ? data.volume : 0.85,
+              isMuted: typeof data.isMuted === "boolean" ? data.isMuted : false,
+              repeatMode: data.repeatMode || "all",
+              shuffleMode: typeof data.shuffleMode === "boolean" ? data.shuffleMode : false,
+              subscriptionTier: isAdminUserEmail(user.email) ? "paid" : (data.subscriptionTier || "free"),
+              currentTrackId: data.currentTrackId !== undefined ? data.currentTrackId : null,
+              selectedPresetName: data.selectedPresetName || "Hip hop",
+              customEqBands: data.customEqBands !== undefined ? data.customEqBands : null,
+              isMaxBass: typeof data.isMaxBass === "boolean" ? data.isMaxBass : false,
+              vehicleInfo: data.vehicleInfo ? { ...defaultVehicle, ...data.vehicleInfo } : defaultVehicle,
+              dspSettings: data.dspSettings ? { ...defaultDsp, ...data.dspSettings } : defaultDsp
+            };
+            lastSavedSettingsRef.current = normalizedSettings;
             if (data.accentTheme) {               
                setAccentTheme(data.accentTheme);             
             }           
@@ -1125,7 +1142,7 @@ export default function App() {
   useEffect(() => {     
     if (!authLoading) {
       if (!isLoggedIn) {       
-        const protectedViews = ["player", "mymusic", "myvideos", "upgrade", "ai_enhancement", "ai_enhancement_audio", "ai_enhancement_video", "ai_video_mirror", "video"];
+        const protectedViews = ["player", "mymusic", "myvideos", "upgrade", "ai_enhancement", "ai_enhancement_audio", "ai_enhancement_video", "video"];
         if (protectedViews.includes(currentView)) {
           setCurrentView("auth");
         }
@@ -1240,6 +1257,22 @@ export default function App() {
     justification: "ElitePlayer setup loaded. Select your vehicle cabin size, your trunk speaker box gear, and slam that AI Sound Optimization button! We'll formulate a premium street-competition DSP profile tailored specifically for your ride."   
   });   
 
+  const [isTotalQuantumActive, setIsTotalQuantumActive] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem("thumplayer_total_quantum_active");
+      return saved !== null ? JSON.parse(saved) : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const handleSetTotalQuantumActive = (active: boolean) => {
+    setIsTotalQuantumActive(active);
+    try {
+      localStorage.setItem("thumplayer_total_quantum_active", JSON.stringify(active));
+    } catch (e) {}
+  };
+
   const [selectedPresetName, setSelectedPresetName] = useState<string>("Hip hop");   
   const [customEqBands, setCustomEqBands] = useState<number[] | null>(() => {
     try {
@@ -1251,7 +1284,7 @@ export default function App() {
   });
   const [isMaxBass, setIsMaxBass] = useState<boolean>(false);   
   const [isOptimizing, setIsOptimizing] = useState<boolean>(false);   
-  const [showAtomicExplosion, setShowAtomicExplosion] = useState<boolean>(false);   
+  const [showAtomicExplosion, setShowAtomicExplosion] = useState<boolean>(false);
 
   const handleSubscriptionTierChange = (tier: "free" | "paid") => {
     const forcedTier = isAdminUserEmail(currentUser?.email) ? "paid" : tier;
@@ -1273,16 +1306,25 @@ export default function App() {
     }
   };
 
-  const ensureEngine = () => {     
-    if (!audioRef.current) return;     
+  const ensureEngine = (targetMediaElement?: HTMLMediaElement | null) => {     
+    const target = targetMediaElement || audioRef.current;
+    if (!target) return;     
     if (!engineRef.current) {       
-      const e = new CarAudioEngine(audioRef.current);       
+      const e = new CarAudioEngine(target);       
       e.init();       
       engineRef.current = e;       
       setEngineReady(true);              
       e.applyDspSettings(dspSettings);       
-      e.audioElement.volume = isMuted ? 0 : volume;     
+      if (e.audioElement && 'volume' in e.audioElement) {
+        try {
+          e.audioElement.volume = isMuted ? 0 : volume;     
+        } catch (err) {}
+      }
     } else {       
+      if (targetMediaElement) {
+        engineRef.current.attachMediaElement(targetMediaElement);
+        engineRef.current.applyDspSettings(dspSettings);
+      }
       engineRef.current.resume();     
     }   
   };   
@@ -1718,7 +1760,9 @@ export default function App() {
       const { songs, vids } = await refreshLocalMedia();
 
       if (successVideoCount > 0 && successAudioCount === 0) {
-        setCurrentView("video");
+        if (currentView !== "myvideos" && currentView !== "enhancement") {
+          setCurrentView("video");
+        }
         if (firstUploadedTrackId) {
           const targetVideo = vids.find(v => v.id === firstUploadedTrackId);
           if (targetVideo) {
@@ -1729,8 +1773,10 @@ export default function App() {
         } else if (vids.length > 0) {
           setSelectedVideo(vids[vids.length - 1]);
         }
-      } else {
-        setCurrentView("player");
+      } else if (successAudioCount > 0) {
+        if (currentView !== "mymusic") {
+          setCurrentView("player");
+        }
         if (firstUploadedTrackId) {
           setLoadedTrackId(firstUploadedTrackId);
           setPlaylist(songs);
@@ -2254,39 +2300,7 @@ export default function App() {
     e.stopPropagation();     
     const track = playlist[idx];     
     if (!track) return;     
-    if (track.id.startsWith("sample-")) {       
-      const updated = [...playlist];       
-      updated.splice(idx, 1);       
-      setPlaylist(updated);       
-      if (currentTrackIndex === idx) {         
-        stopSyntheticOsc();         
-        setIsPlaying(false);         
-        setCurrentTrackIndex(updated.length > 0 ? 0 : -1);       
-      } else if (currentTrackIndex > idx) {         
-        setCurrentTrackIndex(currentTrackIndex - 1);       
-      }       
-      return;     
-    }     
-    try {       
-      await deleteDoc(doc(db, "tracks", track.id));       
-      await deleteLocalTrack(track.id);
-      console.log("Track safely wiped from Firestore and local storage:", track.id);       
-      if (currentTrackIndex === idx) {         
-        stopSyntheticOsc();         
-        setIsPlaying(false);         
-        if (audioRef.current) audioRef.current.pause();         
-        setCurrentTrackIndex(-1);       
-      } else if (currentTrackIndex > idx) {         
-        setCurrentTrackIndex(currentTrackIndex - 1);       
-      }     
-    } catch (err) {       
-      try {
-        await deleteLocalTrack(track.id);
-      } catch (localErr) {
-        console.error("Local track delete fallback failed:", localErr);
-      }
-      handleFirestoreError(err, OperationType.DELETE, `tracks/${track.id}`);     
-    }   
+    await deleteSelectedTracks([track.id]);
   };   
 
   const onPlayTrackById = (trackId: string, customQueue?: Track[]) => {
@@ -2326,32 +2340,42 @@ export default function App() {
   };
 
   const deleteSelectedTracks = async (trackIds: string[]) => {
-    if (trackIds.length === 0) return;
-    const dbTrackIds = trackIds.filter(id => !id.startsWith("sample-"));
+    if (!trackIds || trackIds.length === 0) return;
+    const cleanIds = trackIds.map(id => id.replace("local-db://", ""));
 
-    for (const id of dbTrackIds) {
+    // 1. Optimistically update local state so tracks vanish immediately from UI
+    setFirestoreTracks(prev => prev.filter(t => !cleanIds.includes(t.id) && !trackIds.includes(t.id)));
+    setPlaylist(prev => prev.filter(t => !cleanIds.includes(t.id) && !trackIds.includes(t.id)));
+
+    // 2. Delete from IndexedDB and Firestore
+    for (const rawId of trackIds) {
+      const cleanId = rawId.replace("local-db://", "");
+      if (cleanId.startsWith("sample-")) continue;
+
       try {
-        await deleteLocalTrack(id);
-        console.log("Deleted local IndexedDB track successfully:", id);
-        if (currentUser) {
-          try {
-            await deleteDoc(doc(db, "tracks", id));
-            console.log("Deleted remote Firestore track successfully:", id);
-          } catch (remErr) {
-            console.error("Failed to delete remote Firestore track:", id, remErr);
-          }
-        }
+        await deleteLocalTrack(cleanId);
+        await deleteLocalTrack(rawId);
+        console.log("Deleted local IndexedDB track successfully:", cleanId);
       } catch (err) {
-        console.error("Failed deleting local track:", id, err);
+        console.error("Failed deleting local track:", cleanId, err);
+      }
+
+      if (currentUser) {
+        try {
+          await deleteDoc(doc(db, "tracks", cleanId));
+          console.log("Deleted remote Firestore track successfully:", cleanId);
+        } catch (remErr) {
+          console.warn("Firestore delete track notice:", cleanId, remErr);
+        }
       }
     }
 
     await refreshLocalMedia();
 
     setPlaylist((prev) => {
-      const remaining = prev.filter(t => !dbTrackIds.includes(t.id));
+      const remaining = prev.filter(t => !cleanIds.includes(t.id) && !trackIds.includes(t.id));
       const currentPlayingTrack = prev[currentTrackIndex];
-      if (currentPlayingTrack && trackIds.includes(currentPlayingTrack.id)) {
+      if (currentPlayingTrack && (cleanIds.includes(currentPlayingTrack.id) || trackIds.includes(currentPlayingTrack.id))) {
         stopSyntheticOsc();
         setIsPlaying(false);
         if (audioRef.current) audioRef.current.pause();
@@ -2366,31 +2390,35 @@ export default function App() {
 
   const deleteSelectedVideos = async (videoIds: string[]) => {
     if (!videoIds || videoIds.length === 0) return;
+    const cleanIds = videoIds.map(id => id.replace("local-db://", ""));
 
     // 1. Optimistically update local state so the video vanishes immediately from UI
-    setFirestoreVideos(prev => prev.filter(v => !videoIds.includes(v.id)));
+    setFirestoreVideos(prev => prev.filter(v => !cleanIds.includes(v.id) && !videoIds.includes(v.id)));
 
     // 2. Clear selected video if it's currently selected
-    if (selectedVideo && videoIds.includes(selectedVideo.id)) {
+    if (selectedVideo && (cleanIds.includes(selectedVideo.id) || videoIds.includes(selectedVideo.id))) {
       setSelectedVideo(null);
     }
 
     // 3. Delete from IndexedDB and Firestore
-    for (const id of videoIds) {
+    for (const rawId of videoIds) {
+      const cleanId = rawId.replace("local-db://", "");
       try {
-        await deleteLocalVideo(id);
-        await deleteVideoBlob(id);
-        console.log("Deleted local IndexedDB video successfully:", id);
+        await deleteLocalVideo(cleanId);
+        await deleteVideoBlob(cleanId);
+        await deleteLocalVideo(rawId);
+        await deleteVideoBlob(rawId);
+        console.log("Deleted local IndexedDB video successfully:", cleanId);
       } catch (err) {
-        console.error("Failed deleting local video:", id, err);
+        console.error("Failed deleting local video:", cleanId, err);
       }
 
       if (currentUser) {
         try {
-          await deleteDoc(doc(db, "videos", id));
-          console.log("Deleted remote Firestore video successfully:", id);
+          await deleteDoc(doc(db, "videos", cleanId));
+          console.log("Deleted remote Firestore video successfully:", cleanId);
         } catch (remErr) {
-          console.warn("Firestore delete video warning:", id, remErr);
+          console.warn("Firestore delete video warning:", cleanId, remErr);
         }
       }
     }
@@ -2829,25 +2857,6 @@ export default function App() {
                 Ai video enhancement and optimizer
               </button>
 
-              {/* Live Video Settings Mirror Screen */}
-              <button
-                onClick={() => {
-                  if (isLoggedIn) {
-                    setCurrentView("ai_video_mirror");
-                  } else {
-                    setCurrentView("auth");
-                  }
-                  setIsOpen(false);
-                }}
-                className={`relative z-10 w-full text-left font-sans font-extrabold uppercase tracking-widest text-[14px] sm:text-[15px] px-4 py-2 rounded-xl transition-all duration-100 border border-transparent cursor-pointer ${
-                  currentView === "ai_video_mirror"
-                    ? "bg-black/15 border-2 border-stone-950 text-black shadow-[0_1px_4px_rgba(0,0,0,0.15)] font-black"
-                    : "text-stone-950 hover:bg-black/5 hover:text-black hover:pl-5"
-                }`}
-              >
-                Live video mirror screen
-              </button>
-
               {/* Upgrade */}
               <button
                 onClick={() => {
@@ -3185,7 +3194,7 @@ export default function App() {
           </footer>         
         </div>       
       )}       
-          {(currentView === "player" || currentView === "mymusic" || currentView === "myvideos" || currentView === "upgrade" || currentView === "ai_enhancement" || currentView === "ai_enhancement_audio" || currentView === "ai_enhancement_video" || currentView === "ai_video_mirror" || currentView === "video") && (         
+          {(currentView === "player" || currentView === "mymusic" || currentView === "myvideos" || currentView === "upgrade" || currentView === "ai_enhancement" || currentView === "ai_enhancement_audio" || currentView === "ai_enhancement_video" || currentView === "video") && (         
         <>           
           <main id="main-workbench" className="flex-1 w-full mx-auto px-4 py-6 flex flex-col gap-6 items-stretch max-w-xl">                          
             {currentView === "player" && (
@@ -3207,6 +3216,7 @@ export default function App() {
                   headunitTime={headunitTime}               
                   isMaxBass={isMaxBass}               
                   onToggleMaxBass={toggleMaxBass}             
+                  onDeleteTrack={(id) => deleteSelectedTracks([id])}
                 />             
 
                 <section className="flex flex-col gap-6">                              
@@ -3317,9 +3327,6 @@ export default function App() {
                   setGlobalPremiumPrompt("Unlock advanced VIP AI Video tuning, upscaling, color profiles, and pre-calibrated cinema modes.");
                   setCurrentView("upgrade");
                 }}
-                onNavigateToMirror={() => {
-                  setCurrentView("ai_video_mirror");
-                }}
                 firestoreVideos={firestoreVideos}
                 selectedVideo={selectedVideo}
                 setSelectedVideo={setSelectedVideo}
@@ -3335,37 +3342,12 @@ export default function App() {
                 setTurboMode={setTurboMode}
                 aiOptimizedFilters={aiOptimizedFilters}
                 setAiOptimizedFilters={setAiOptimizedFilters}
-              />
-            )}
-
-            {currentView === "ai_video_mirror" && (
-              <AiVideoMirrorView
-                subscriptionTier={effectiveSubscriptionTier}
-                onBackToEnhancement={() => {
-                  setCurrentView("ai_enhancement_video");
-                }}
-                onBackToPlayer={() => {
-                  setCurrentView("video");
-                }}
-                onNavigateToUpgrade={() => {
-                  setGlobalPremiumPrompt("Unlock advanced VIP AI Video tuning, upscaling, color profiles, and pre-calibrated cinema modes.");
-                  setCurrentView("upgrade");
-                }}
-                firestoreVideos={firestoreVideos}
-                selectedVideo={selectedVideo}
-                setSelectedVideo={setSelectedVideo}
-                activeModel={activeModel}
-                setActiveModel={setActiveModel}
-                upscaleTarget={upscaleTarget}
-                setUpscaleTarget={setUpscaleTarget}
-                colorEnhancement={colorEnhancement}
-                setColorEnhancement={setColorEnhancement}
-                smoothMotion={smoothMotion}
-                setSmoothMotion={setSmoothMotion}
-                turboMode={turboMode}
-                setTurboMode={setTurboMode}
-                aiOptimizedFilters={aiOptimizedFilters}
-                setAiOptimizedFilters={setAiOptimizedFilters}
+                dspSettings={dspSettings}
+                setDspSettings={setDspSettings}
+                onUpdateBassBoost={handleBassKnobChange}
+                onUpdateEqBand={handleEqValueChange}
+                isTotalQuantumActive={isTotalQuantumActive}
+                setIsTotalQuantumActive={handleSetTotalQuantumActive}
               />
             )}
 
@@ -3384,6 +3366,7 @@ export default function App() {
                 uploadSuccess={uploadSuccess}
                 onUploadVideos={handleFileUpload}
                 onRefreshVideos={async () => { await refreshLocalMedia(); }}
+                deleteSelectedVideos={deleteSelectedVideos}
                 selectedVideo={selectedVideo}
                 setSelectedVideo={setSelectedVideo}
                 activeModel={activeModel}
@@ -3398,6 +3381,13 @@ export default function App() {
                 setTurboMode={setTurboMode}
                 aiOptimizedFilters={aiOptimizedFilters}
                 setAiOptimizedFilters={setAiOptimizedFilters}
+                dspSettings={dspSettings}
+                setDspSettings={setDspSettings}
+                onUpdateBassBoost={handleBassKnobChange}
+                onUpdateEqBand={handleEqValueChange}
+                ensureEngine={ensureEngine}
+                isTotalQuantumActive={isTotalQuantumActive}
+                setIsTotalQuantumActive={handleSetTotalQuantumActive}
               />
             )}
           </main>         
@@ -3468,7 +3458,11 @@ export default function App() {
         </div>
       )}
 
-      {/* Minimized player disabled as requested */}
+      {/* App Root */}
     </div>
   );
+}
+
+export default function App() {
+  return <MainApp />;
 }

@@ -26,9 +26,13 @@ import {
   Crown,
   Eye,
   Sliders,
-  Sparkle
+  Sparkle,
+  Cast
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { CastModal, CastDevice } from "./CastModal";
+import { TotalQuantumConsole } from "./TotalQuantumConsole";
+import { DspSettings } from "../types";
 import { auth } from "../firebase";
 import { getVideoBlob } from "../utils/videoStorage";
 
@@ -49,7 +53,6 @@ interface AiVideoEnhancementViewProps {
   subscriptionTier: "free" | "paid";
   onBackToPlayer: () => void;
   onNavigateToUpgrade: () => void;
-  onNavigateToMirror?: () => void;
   firestoreVideos: VideoTrack[];
   
   // Shared States from App.tsx
@@ -75,13 +78,20 @@ interface AiVideoEnhancementViewProps {
     justification: string;
   } | null;
   setAiOptimizedFilters: (filters: any) => void;
+
+  // Total Quantum Props
+  isTotalQuantumActive?: boolean;
+  setIsTotalQuantumActive?: (active: boolean) => void;
+  dspSettings?: DspSettings;
+  setDspSettings?: React.Dispatch<React.SetStateAction<DspSettings>>;
+  onUpdateBassBoost?: (val: number) => void;
+  onUpdateEqBand?: (index: number, val: number) => void;
 }
 
 export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
   subscriptionTier: parentSubscriptionTier,
   onBackToPlayer,
   onNavigateToUpgrade,
-  onNavigateToMirror,
   firestoreVideos,
   
   // Shared States
@@ -98,14 +108,32 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
   turboMode,
   setTurboMode,
   aiOptimizedFilters,
-  setAiOptimizedFilters
+  setAiOptimizedFilters,
+
+  // Total Quantum
+  isTotalQuantumActive = true,
+  setIsTotalQuantumActive,
+  dspSettings = {
+    eqBands: [4, 1, 0, 2, 3],
+    bassBoost: 50.0,
+    reverbWet: 0.08,
+    delayOffsetMs: 12,
+    highPassFilterHz: 30,
+    subCrossoverHz: 80,
+    justification: "Total Quantum Active"
+  },
+  setDspSettings,
+  onUpdateBassBoost,
+  onUpdateEqBand
 }) => {
   const isPremiumActive = parentSubscriptionTier === "paid";
 
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [videoOptimizeError, setVideoOptimizeError] = useState("");
   const videoPreviewRef = useRef<HTMLVideoElement>(null);
+  const topVideoRef = useRef<HTMLVideoElement>(null);
   const [isPlayingPreview, setIsPlayingPreview] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
   
   // High-fidelity active calibration state
   const [isScanning, setIsScanning] = useState(false);
@@ -117,6 +145,11 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
   // Extra customizable fine-tuning toggles
   const [smartSharpness, setSmartSharpness] = useState(true);
   const [backlightStabilizer, setBacklightStabilizer] = useState(false);
+
+  // Cast & Total Quantum states
+  const [showCastModal, setShowCastModal] = useState(false);
+  const [connectedCastDevice, setConnectedCastDevice] = useState<CastDevice | null>(null);
+  const [showQuantumConsole, setShowQuantumConsole] = useState(false);
 
   // Combine builtin and uploaded videos
   const allVideosCombined = useMemo(() => {
@@ -176,12 +209,13 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
 
   // Reset play preview on video change
   useEffect(() => {
-    if (videoPreviewRef.current) {
-      if (typeof videoPreviewRef.current.pause === "function") {
-        videoPreviewRef.current.pause();
-      }
-      setIsPlayingPreview(false);
+    if (videoPreviewRef.current && typeof videoPreviewRef.current.pause === "function") {
+      videoPreviewRef.current.pause();
     }
+    if (topVideoRef.current && typeof topVideoRef.current.pause === "function") {
+      topVideoRef.current.pause();
+    }
+    setIsPlayingPreview(false);
   }, [selectedVideo]);
 
   const addDiagnosticLog = (msg: string) => {
@@ -425,13 +459,15 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
   }, [colorEnhancement, upscaleTarget, turboMode, aiOptimizedFilters, isHoldingCompare, smartSharpness, backlightStabilizer]);
 
   const togglePlayPreview = () => {
-    const raw = videoPreviewRef.current;
-    if (!raw) return;
+    const rawSide = videoPreviewRef.current;
+    const rawTop = topVideoRef.current;
     if (isPlayingPreview) {
-      raw.pause();
+      if (rawSide) rawSide.pause();
+      if (rawTop) rawTop.pause();
       setIsPlayingPreview(false);
     } else {
-      raw.play().catch(err => console.log("Preview play blocked:", err));
+      if (rawSide) rawSide.play().catch(() => {});
+      if (rawTop) rawTop.play().catch(() => {});
       setIsPlayingPreview(true);
     }
   };
@@ -470,17 +506,33 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
           </p>
         </div>
 
-        {/* Back and Upgrade Button */}
+        {/* Back and Upgrade Buttons */}
         <div className="flex flex-wrap items-center gap-2.5">
-          {onNavigateToMirror && (
-            <button
-              onClick={onNavigateToMirror}
-              className="px-3.5 py-2 rounded-xl text-xs font-sans font-bold tracking-wide transition-all border bg-gradient-to-r from-amber-500/20 to-amber-600/20 border-amber-500/40 text-amber-300 hover:bg-amber-500/30 hover:border-amber-400 shadow-md flex items-center gap-1.5 cursor-pointer"
-            >
-              <Tv className="w-4 h-4 text-amber-400 animate-pulse" />
-              Live Mirror Screen
-            </button>
-          )}
+          <button
+            onClick={() => setShowQuantumConsole(true)}
+            className={`px-3.5 py-2 rounded-xl text-xs font-sans font-bold transition-all border flex items-center gap-1.5 cursor-pointer shadow-md active:scale-95 ${
+              isTotalQuantumActive
+                ? "bg-amber-500/20 border-amber-500 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.4)] animate-pulse"
+                : "bg-stone-900 border-stone-800 text-stone-200 hover:text-white hover:border-stone-700"
+            }`}
+            title="Total Quantum: Unified Audio-Video Master DSP Console"
+          >
+            <Zap className="w-4 h-4 text-amber-400 fill-current" />
+            {isTotalQuantumActive ? "Total Quantum: Active" : "Total Quantum"}
+          </button>
+
+          <button
+            onClick={() => setShowCastModal(true)}
+            className={`px-3.5 py-2 rounded-xl text-xs font-sans font-bold transition-all border flex items-center gap-1.5 cursor-pointer shadow-md active:scale-95 ${
+              connectedCastDevice
+                ? "bg-amber-500/20 border-amber-500 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.3)] animate-pulse"
+                : "bg-stone-900 border-stone-800 text-stone-200 hover:text-white hover:border-stone-700"
+            }`}
+            title="Cast video stream to Smart TV or Streaming Device"
+          >
+            <Cast className="w-4 h-4 text-amber-400" />
+            {connectedCastDevice ? `Casting: ${connectedCastDevice.name}` : "Cast to TV"}
+          </button>
 
           {parentSubscriptionTier !== "paid" && (
             <button
@@ -494,11 +546,209 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
           
           <button
             onClick={onBackToPlayer}
-            className="px-4 py-2 rounded-xl border border-stone-800 bg-stone-900 hover:bg-stone-850 text-stone-300 hover:text-white transition-all text-xs font-sans font-semibold flex items-center gap-2 shadow"
+            className="px-4 py-2 rounded-xl border border-stone-800 bg-stone-900 hover:bg-stone-850 text-stone-300 hover:text-white transition-all text-xs font-sans font-semibold flex items-center gap-2 shadow cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" />
             Go Back
           </button>
+        </div>
+      </div>
+
+      {/* TOP SECTION: Top Visual Reference Screen for Live Tuning */}
+      <div className="p-4 sm:p-5 rounded-3xl bg-stone-900/80 border border-stone-800 shadow-[0_20px_50px_rgba(0,0,0,0.7)] flex flex-col gap-4 backdrop-blur-xl relative overflow-hidden ring-1 ring-amber-500/20">
+        {/* Ambient Glow Backdrop */}
+        <div className="absolute top-0 right-1/4 w-72 h-72 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
+
+        {/* Top Header Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-stone-800/80">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30">
+              <Tv className="w-4 h-4 text-amber-400 animate-pulse" />
+            </div>
+          </div>
+
+          {/* Active Settings Badges Bar */}
+          <div className="flex flex-wrap items-center gap-1.5 text-[9px] font-mono font-semibold">
+            <span className="px-2 py-0.5 rounded bg-stone-950 text-amber-400 border border-stone-800">
+              RES: {upscaleTarget}
+            </span>
+            <span className="px-2 py-0.5 rounded bg-stone-950 text-stone-300 border border-stone-800">
+              COLOR: {colorEnhancement.toUpperCase()}
+            </span>
+            <span className="px-2 py-0.5 rounded bg-stone-950 text-stone-300 border border-stone-800">
+              METHOD: {activeModel === "quantum-scale" ? "SCALE" : activeModel === "deep-cinema" ? "CINEMA" : "CHROMA"}
+            </span>
+            {smoothMotion && (
+              <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                120 FPS
+              </span>
+            )}
+            {turboMode && (
+              <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                TURBO
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Video Screen Viewport */}
+        <div className="relative aspect-video w-full max-h-[400px] sm:max-h-[460px] rounded-2xl bg-black border border-stone-950 overflow-hidden shadow-2xl group ring-1 ring-white/10 mx-auto">
+          {selectedVideo && resolvedVideoUrl ? (
+            <>
+              <video
+                ref={topVideoRef}
+                title={selectedVideo.name || "Top Visual Reference Stream"}
+                src={resolvedVideoUrl}
+                preload="auto"
+                loop={true}
+                muted={isMuted}
+                autoPlay
+                playsInline
+                crossOrigin="anonymous"
+                onError={() => setIsPlayingPreview(false)}
+                style={enhancedStyles}
+                className="w-full h-full object-cover transition-all"
+              />
+              
+              {/* Reflection glare overlay */}
+              <div className="absolute inset-0 pointer-events-none bg-gradient-to-tr from-transparent via-white/[0.02] to-transparent select-none z-[2]" />
+
+              {/* Status Overlay Badges */}
+              <div className="absolute top-3 left-3 z-10 pointer-events-none select-none flex flex-wrap items-center gap-2">
+                <span className="px-2.5 py-1 rounded-lg text-[9px] font-mono bg-stone-950/90 border border-stone-800 text-emerald-400 font-bold tracking-widest uppercase flex items-center gap-1.5 shadow-lg backdrop-blur-md">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  LIVE PREVIEW FEED
+                </span>
+                {!isHoldingCompare && aiOptimizedFilters && (
+                  <span className="px-2.5 py-1 rounded-lg text-[9px] font-sans bg-amber-500/20 border border-amber-500/40 text-amber-300 font-extrabold tracking-widest uppercase flex items-center gap-1.5 shadow-lg backdrop-blur-md">
+                    <Sparkles className="w-3 h-3 text-amber-400 animate-bounce" />
+                    AI TUNING ACTIVE
+                  </span>
+                )}
+                {isHoldingCompare && (
+                  <span className="px-2.5 py-1 rounded-lg text-[9px] font-sans bg-stone-950/95 border border-stone-700 text-amber-400 font-bold tracking-wider uppercase backdrop-blur-md">
+                    ORIGINAL UNFILTERED VIDEO
+                  </span>
+                )}
+              </div>
+
+              {/* Dynamic Laser Scanning Effect during optimization */}
+              <AnimatePresence>
+                {isScanning && (
+                  <motion.div 
+                    initial={{ top: "0%" }}
+                    animate={{ top: "100%" }}
+                    exit={{ opacity: 0 }}
+                    transition={{ 
+                      repeat: Infinity, 
+                      repeatType: "reverse", 
+                      duration: 1.5,
+                      ease: "easeInOut"
+                    }}
+                    className="absolute left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-amber-500 to-transparent shadow-[0_0_12px_rgba(245,158,11,1)] z-10 pointer-events-none"
+                  />
+                )}
+              </AnimatePresence>
+
+              {/* Interactive Play/Pause Hover Overlay */}
+              <div 
+                onClick={togglePlayPreview}
+                className="absolute inset-0 z-10 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
+              >
+                <div className="w-14 h-14 rounded-full bg-stone-950/90 border border-stone-700 text-white flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-2xl">
+                  {isPlayingPreview ? (
+                    <Pause className="w-6 h-6 fill-white text-white" />
+                  ) : (
+                    <Play className="w-6 h-6 fill-white text-white pl-0.5" />
+                  )}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4">
+              <Monitor className="w-10 h-10 text-stone-800 mb-2 animate-pulse" />
+              <span className="text-xs uppercase font-sans font-bold text-stone-500 tracking-widest">
+                No Video Track Selected
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Top Screen Control & Comparison Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+          
+          {/* Play/Pause & Sound Controls */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={togglePlayPreview}
+              className="px-3 py-1.5 rounded-xl bg-stone-950 hover:bg-stone-850 border border-stone-800 text-white font-sans text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+            >
+              {isPlayingPreview ? (
+                <>
+                  <Pause className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                  Pause
+                </>
+              ) : (
+                <>
+                  <Play className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                  Play
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={() => setIsMuted(!isMuted)}
+              className="px-3 py-1.5 rounded-xl bg-stone-950 hover:bg-stone-850 border border-stone-800 text-stone-300 font-sans text-xs font-medium transition-all cursor-pointer"
+            >
+              {isMuted ? "Unmute Sound" : "Mute Sound"}
+            </button>
+          </div>
+
+          {/* Hold to Compare Original Button */}
+          {selectedVideo && (
+            <button
+              onMouseDown={() => setIsHoldingCompare(true)}
+              onMouseUp={() => setIsHoldingCompare(false)}
+              onMouseLeave={() => setIsHoldingCompare(false)}
+              onTouchStart={() => setIsHoldingCompare(true)}
+              onTouchEnd={() => setIsHoldingCompare(false)}
+              className={`px-4 py-2 rounded-xl font-sans text-xs font-bold uppercase tracking-wider flex items-center gap-2 select-none cursor-pointer transition-all active:scale-95 shadow-md ${
+                isHoldingCompare
+                  ? "bg-amber-500 text-stone-950 font-black shadow-[0_0_20px_rgba(245,158,11,0.5)]"
+                  : "bg-stone-950 hover:bg-stone-850 border border-stone-800 text-amber-400 hover:text-white"
+              }`}
+              title="Hold down to compare original video against current AI settings"
+            >
+              <Eye className="w-4 h-4" />
+              {isHoldingCompare ? "SHOWING ORIGINAL" : "Hold to See Original"}
+            </button>
+          )}
+
+          {/* Quick Track Selection */}
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-sans text-stone-400 font-semibold hidden sm:inline">
+              Track:
+            </span>
+            <select
+              value={selectedVideo?.id || ""}
+              onChange={(e) => {
+                const found = allVideosCombined.find(v => v.id === e.target.value);
+                if (found) {
+                  setSelectedVideo(found);
+                  setActivePreset(null);
+                  addDiagnosticLog(`Video changed: ${found.name}`);
+                }
+              }}
+              className="px-3 py-1.5 text-xs bg-stone-950 text-stone-200 border border-stone-800 rounded-xl focus:outline-none cursor-pointer font-sans font-medium max-w-[200px] truncate"
+            >
+              {allVideosCombined.map((vid) => (
+                <option key={vid.id} value={vid.id}>
+                  {vid.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
         </div>
       </div>
 
@@ -1028,16 +1278,6 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
                 </h4>
               </div>
               <div className="flex items-center gap-2">
-                {onNavigateToMirror && (
-                  <button
-                    onClick={onNavigateToMirror}
-                    className="px-2 py-0.5 rounded text-[9px] font-sans bg-stone-950 hover:bg-stone-850 text-amber-400 hover:text-white border border-stone-800 flex items-center gap-1 transition-colors cursor-pointer"
-                    title="Expand into full Live Mirror Screen"
-                  >
-                    <Tv className="w-2.5 h-2.5 text-amber-400" />
-                    Expand Mirror
-                  </button>
-                )}
                 <span className={`text-[9px] font-mono font-bold tracking-widest px-2 py-0.5 rounded ${
                   isHoldingCompare
                     ? "bg-stone-950 text-stone-500"
@@ -1064,6 +1304,7 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
                     autoPlay
                     playsInline
                     crossOrigin="anonymous"
+                    onError={() => setIsPlayingPreview(false)}
                     style={enhancedStyles}
                     className="w-full h-full object-cover transition-all"
                   />
@@ -1251,6 +1492,38 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
 
       </div>
 
+      {/* Cast Overlay Modal */}
+      <CastModal
+        isOpen={showCastModal}
+        onClose={() => setShowCastModal(false)}
+        videoElement={videoPreviewRef.current || topVideoRef.current}
+        videoName={selectedVideo?.name}
+        videoUrl={selectedVideo?.url || resolvedVideoUrl}
+        connectedDevice={connectedCastDevice}
+        onSelectDevice={(device) => setConnectedCastDevice(device)}
+      />
+
+      {/* Total Quantum Console Overlay */}
+      <TotalQuantumConsole
+        isOpen={showQuantumConsole}
+        onClose={() => setShowQuantumConsole(false)}
+        isTotalQuantumActive={isTotalQuantumActive}
+        setIsTotalQuantumActive={setIsTotalQuantumActive || (() => {})}
+        activeModel={activeModel}
+        setActiveModel={setActiveModel}
+        upscaleTarget={upscaleTarget === "HD" ? "1080p" : upscaleTarget === "2K" ? "native" : upscaleTarget === "4K" ? "4K" : "8K"}
+        setUpscaleTarget={(t) => setUpscaleTarget(t === "1080p" ? "HD" : t === "native" ? "2K" : t === "4K" ? "4K" : "8K")}
+        colorEnhancement={colorEnhancement === "vivid" ? "vibrant" : colorEnhancement === "hdr" ? "hdr_pop" : colorEnhancement === "lowlight" ? "cinematic" : "off"}
+        setColorEnhancement={(c) => setColorEnhancement(c === "vibrant" ? "vivid" : c === "hdr_pop" ? "hdr" : c === "cinematic" ? "lowlight" : "none")}
+        smoothMotion={smoothMotion}
+        setSmoothMotion={setSmoothMotion}
+        turboMode={turboMode}
+        setTurboMode={setTurboMode}
+        dspSettings={dspSettings}
+        setDspSettings={setDspSettings}
+        onUpdateBassBoost={onUpdateBassBoost}
+        onUpdateEqBand={onUpdateEqBand}
+      />
     </motion.div>
   );
 };

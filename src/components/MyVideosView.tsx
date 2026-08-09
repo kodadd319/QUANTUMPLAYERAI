@@ -110,6 +110,7 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
   const [selectedVideoIds, setSelectedVideoIds] = useState<string[]>([]);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
 
   // Long press timer refs & selection mode triggers
   const longPressTimers = useRef<Record<string, any>>({});

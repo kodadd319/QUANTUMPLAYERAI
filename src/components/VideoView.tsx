@@ -4,6 +4,7 @@ import {
   Play, 
   Pause, 
   Volume2, 
+  Volume1,
   VolumeX, 
   Maximize, 
   Minimize2, 
@@ -31,11 +32,14 @@ import {
   Film,
   User,
   RotateCcw,
+  RotateCw,
   Loader2,
   Subtitles,
   Flame,
   Cast,
-  Zap
+  Zap,
+  Repeat,
+  PictureInPicture
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { CastModal, CastDevice } from "./CastModal";
@@ -470,6 +474,26 @@ export const VideoView: React.FC<VideoViewProps> = ({
   const [aspectRatio, setAspectRatio] = useState<"16:9" | "21:9" | "4:3" | "1:1">("16:9");
   const [videoFit, setVideoFit] = useState<"cover" | "contain" | "fill">("contain");
   const [captionsEnabled, setCaptionsEnabled] = useState(false);
+  const [isLooping, setIsLooping] = useState(true);
+  const [isPiPActive, setIsPiPActive] = useState(false);
+  const [showSeekFeedback, setShowSeekFeedback] = useState<"-10s" | "+10s" | null>(null);
+
+  const togglePictureInPicture = async (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const raw = videoRawRef.current;
+    if (!raw) return;
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+        setIsPiPActive(false);
+      } else if (document.pictureInPictureEnabled && typeof raw.requestPictureInPicture === "function") {
+        await raw.requestPictureInPicture();
+        setIsPiPActive(true);
+      }
+    } catch (err) {
+      console.warn("Picture-in-picture error:", err);
+    }
+  };
 
   // Dynamic context-aware subtitle caption generator
   const getCaptionForTime = (time: number, total: number, name: string) => {
@@ -619,6 +643,8 @@ export const VideoView: React.FC<VideoViewProps> = ({
     }
     setCurrentTime(newTime);
     setProgress(dur ? (newTime / dur) * 100 : 0);
+    setShowSeekFeedback("-10s");
+    setTimeout(() => setShowSeekFeedback(null), 600);
   };
 
   const handleSkipForward = () => {
@@ -631,6 +657,8 @@ export const VideoView: React.FC<VideoViewProps> = ({
     }
     setCurrentTime(newTime);
     setProgress(dur ? (newTime / dur) * 100 : 0);
+    setShowSeekFeedback("+10s");
+    setTimeout(() => setShowSeekFeedback(null), 600);
   };
 
   // Playlist Navigation
@@ -902,12 +930,13 @@ export const VideoView: React.FC<VideoViewProps> = ({
               <span className={`animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75 ${isPlaying ? "block" : "hidden"}`}></span>
               <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${isPlaying ? "bg-white" : "bg-stone-600"}`}></span>
             </span>
+            <span className="hidden sm:inline tracking-widest text-stone-400 font-medium">CINEMA PRO DECK</span>
           </span>
           
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowQuantumConsole(true)}
-              className={`px-2.5 py-1 rounded border text-[8px] font-sans font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 ${
+              className={`px-2.5 py-1 rounded-lg border text-[8px] font-sans font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 ${
                 isTotalQuantumActive
                   ? "bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-[0_0_12px_rgba(245,158,11,0.4)] animate-pulse"
                   : "bg-stone-900 hover:bg-stone-850 text-stone-300 hover:text-white border-stone-800"
@@ -920,7 +949,7 @@ export const VideoView: React.FC<VideoViewProps> = ({
 
             <button
               onClick={() => setShowCastModal(true)}
-              className={`px-2.5 py-1 rounded border text-[8px] font-sans font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 ${
+              className={`px-2.5 py-1 rounded-lg border text-[8px] font-sans font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 ${
                 connectedCastDevice
                   ? "bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-[0_0_12px_rgba(245,158,11,0.3)] animate-pulse"
                   : "bg-stone-900 hover:bg-stone-850 text-stone-300 hover:text-white border-stone-800"
@@ -933,7 +962,7 @@ export const VideoView: React.FC<VideoViewProps> = ({
 
             <button 
               onClick={onBackToPlayer}
-              className="px-2.5 py-1 rounded bg-stone-900 hover:bg-stone-850 text-stone-300 hover:text-white border border-stone-800 text-[8px] font-sans font-bold uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-all active:scale-95"
+              className="px-2.5 py-1 rounded-lg bg-stone-900 hover:bg-stone-850 text-stone-300 hover:text-white border border-stone-800 text-[8px] font-sans font-bold uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-all active:scale-95"
               title="Return to music player"
             >
               <ArrowLeft className="w-3 h-3" />
@@ -943,7 +972,7 @@ export const VideoView: React.FC<VideoViewProps> = ({
 
           <div className="flex items-center gap-3">
             {turboMode && (
-              <span className="text-red-500 font-semibold animate-pulse bg-red-950/45 px-1.5 py-0.5 rounded border border-red-800/35 animate-none">
+              <span className="text-red-500 font-semibold animate-pulse bg-red-950/45 px-1.5 py-0.5 rounded border border-red-800/35">
                 AI TURBO ACTIVE
               </span>
             )}
@@ -979,7 +1008,7 @@ export const VideoView: React.FC<VideoViewProps> = ({
             </div>
           )}
 
-          {/* 1. LARGE PREMIUM SCREEN BEZEL DESIGN: Framed just like a double-din physical display screen */}
+          {/* 1. LARGE PREMIUM SCREEN BEZEL DESIGN: Framed with sleek double-din styling and integrated quick overlay */}
           <div 
             ref={playerWrapperRef}
             onClick={() => {
@@ -987,14 +1016,14 @@ export const VideoView: React.FC<VideoViewProps> = ({
                 setShowFullscreenOverlay(!showFullscreenOverlay);
               }
             }}
-            className={`relative overflow-hidden bg-black flex items-center justify-center select-none transition-all duration-300 ${
+            className={`relative overflow-hidden bg-black flex items-center justify-center select-none transition-all duration-300 group ${
               isFullscreen 
                 ? "w-screen h-screen max-w-none max-h-none rounded-none border-none cursor-pointer" 
                 : `rounded-2xl border border-stone-800 w-full ${
                     aspectRatio === "16:9" ? "aspect-video" : 
                     aspectRatio === "21:9" ? "aspect-[21/9]" : 
                     aspectRatio === "4:3" ? "aspect-[4/3]" : "aspect-square"
-                  } shadow-[0_15px_45px_rgba(0,0,0,0.85)]`
+                  } shadow-[0_15px_45px_rgba(0,0,0,0.85)] ring-1 ring-white/5`
             }`}
           >
             {/* High Performance AI Enhanced Video Player Engine */}
@@ -1005,7 +1034,7 @@ export const VideoView: React.FC<VideoViewProps> = ({
                   title={selectedVideo.name || "Video Stream"}
                   src={resolvedVideoUrl}
                   preload="auto"
-                  loop={true}
+                  loop={isLooping}
                   muted={isMuted}
                   playsInline
                   crossOrigin="anonymous"
@@ -1025,7 +1054,16 @@ export const VideoView: React.FC<VideoViewProps> = ({
                   }}
                   onPlay={() => setIsPlaying(true)}
                   onPause={() => setIsPlaying(false)}
-                  onEnded={() => handleNextVideo()}
+                  onEnded={() => {
+                    if (isLooping) {
+                      if (videoRawRef.current) {
+                        videoRawRef.current.currentTime = 0;
+                        videoRawRef.current.play()?.catch(() => {});
+                      }
+                    } else {
+                      handleNextVideo();
+                    }
+                  }}
                   onError={(e) => {
                     console.error("Video load error:", e?.type || "error");
                     setIsPlaying(false);
@@ -1064,17 +1102,73 @@ export const VideoView: React.FC<VideoViewProps> = ({
               )}
             </div>
 
+            {/* Interactive Quick On-Screen HUD: Sleek Top Badge Strip */}
+            {!isFullscreen && selectedVideo && (
+              <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-20">
+                <div className="flex items-center gap-1.5">
+                  <span className="px-2 py-0.5 rounded-md bg-black/75 backdrop-blur-md border border-white/10 text-[9px] font-mono font-bold text-white uppercase tracking-wider">
+                    {upscaleTarget === "8K" ? "8K ULTRA" : upscaleTarget === "4K" ? "4K HDR" : upscaleTarget === "2K" ? "2K PRO" : "1080p HD"}
+                  </span>
+                  {colorEnhancement !== "none" && (
+                    <span className="px-2 py-0.5 rounded-md bg-amber-500/20 backdrop-blur-md border border-amber-500/30 text-[9px] font-sans font-bold text-amber-300 uppercase tracking-wider">
+                      {colorEnhancement.toUpperCase()}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5 pointer-events-auto">
+                  {/* Quick PiP Button */}
+                  <button
+                    onClick={togglePictureInPicture}
+                    className={`p-1.5 rounded-md backdrop-blur-md border text-[9px] transition-all cursor-pointer ${
+                      isPiPActive 
+                        ? "bg-amber-500/30 border-amber-500/50 text-amber-300"
+                        : "bg-black/75 hover:bg-black/90 border-white/10 text-stone-300 hover:text-white"
+                    }`}
+                    title="Picture-in-Picture"
+                  >
+                    <PictureInPicture className="w-3.5 h-3.5" />
+                  </button>
+
+                  {/* Quick Fullscreen Button */}
+                  <button
+                    onClick={toggleFullscreen}
+                    className="p-1.5 rounded-md bg-black/75 hover:bg-black/90 backdrop-blur-md border border-white/10 text-stone-300 hover:text-white transition-all cursor-pointer"
+                    title="Fullscreen"
+                  >
+                    <Maximize className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Skip Feedback Animation Overlay */}
+            <AnimatePresence>
+              {showSeekFeedback && (
+                <motion.div
+                  initial={{ scale: 0.6, opacity: 0 }}
+                  animate={{ scale: 1.1, opacity: 1 }}
+                  exit={{ scale: 0.8, opacity: 0 }}
+                  className="absolute z-30 px-4 py-2 rounded-full bg-black/85 backdrop-blur-md border border-white/20 text-white font-mono text-xs font-bold shadow-2xl flex items-center gap-1 pointer-events-none"
+                >
+                  {showSeekFeedback === "-10s" ? <RotateCcw className="w-4 h-4 text-stone-300" /> : <RotateCw className="w-4 h-4 text-stone-300" />}
+                  <span>{showSeekFeedback}</span>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {/* Interactive play button overlay when paused */}
             {!isFullscreen && (
               <div 
                 onClick={handlePlayPause}
-                className="absolute inset-0 bg-transparent flex items-center justify-center cursor-pointer group z-10"
+                className="absolute inset-0 bg-transparent flex items-center justify-center cursor-pointer z-10"
               >
-                {!isPlaying && (
+                {!isPlaying && selectedVideo && (
                   <motion.div 
                     initial={{ scale: 0.8, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
-                    className="w-14 h-14 rounded-full bg-[#140e0d]/90 border border-white/20 text-white flex items-center justify-center shadow-2xl transition-all duration-100 group-hover:scale-110 shadow-[0_0_20px_rgba(255,255,255,0.15)]"
+                    whileHover={{ scale: 1.1 }}
+                    className="w-14 h-14 rounded-full bg-black/80 backdrop-blur-md border border-white/25 text-white flex items-center justify-center shadow-[0_0_25px_rgba(255,255,255,0.2)] transition-all"
                   >
                     <Play className="w-5 h-5 text-white fill-white translate-x-0.5" />
                   </motion.div>
@@ -1096,7 +1190,7 @@ export const VideoView: React.FC<VideoViewProps> = ({
               <div 
                 onClick={(e) => {
                   e.stopPropagation();
-                  setShowFullscreenOverlay(false); // Clicking outside closes overlay
+                  setShowFullscreenOverlay(false);
                 }}
                 className="absolute inset-0 bg-black/65 flex flex-col justify-between p-6 cursor-pointer z-50 backdrop-blur-xs"
               >
@@ -1145,7 +1239,7 @@ export const VideoView: React.FC<VideoViewProps> = ({
                     className="w-14 h-14 rounded-full bg-stone-950/80 border border-white/10 hover:border-white/25 text-white flex items-center justify-center shadow-2xl transition-all hover:scale-110 active:scale-95 cursor-pointer"
                     title="Skip Back 10s"
                   >
-                    <SkipBack className="w-6 h-6 text-stone-300 hover:text-white" />
+                    <RotateCcw className="w-5 h-5 text-stone-300 hover:text-white" />
                   </button>
 
                   {/* Play / Pause Toggle Button */}
@@ -1173,7 +1267,7 @@ export const VideoView: React.FC<VideoViewProps> = ({
                     className="w-14 h-14 rounded-full bg-stone-950/80 border border-white/10 hover:border-white/25 text-white flex items-center justify-center shadow-2xl transition-all hover:scale-110 active:scale-95 cursor-pointer"
                     title="Skip Forward 10s"
                   >
-                    <SkipForward className="w-6 h-6 text-stone-300 hover:text-white" />
+                    <RotateCw className="w-5 h-5 text-stone-300 hover:text-white" />
                   </button>
                 </div>
 
@@ -1313,11 +1407,11 @@ export const VideoView: React.FC<VideoViewProps> = ({
           </div>
 
           {/* 3. INTEGRATED SEEK BAR & TIME DECK: Matches Double Din Player timeline exactly */}
-          <div className="w-full flex flex-col gap-1.5 bg-black/35 p-3 rounded-2xl border border-stone-900/85">
-            <div className="flex items-center justify-between text-[10px] font-sans text-stone-400 font-semibold tracking-wider px-1">
-              <span className="text-stone-100">{formatTimeHelper(currentTime)}</span>
-              <div className="h-[1px] flex-1 mx-3 bg-stone-900/40" />
-              <span className="text-slate-200">{formatTimeHelper(duration)}</span>
+          <div className="w-full flex flex-col gap-1.5 bg-black/35 p-3.5 rounded-2xl border border-stone-900/85">
+            <div className="flex items-center justify-between text-[10px] font-mono text-stone-400 font-medium tracking-wider px-1">
+              <span className="text-stone-100 font-semibold">{formatTimeHelper(currentTime)}</span>
+              <div className="h-[1px] flex-1 mx-3 bg-stone-900/60" />
+              <span className="text-slate-200 font-semibold">{formatTimeHelper(duration)}</span>
             </div>
 
             <div 
@@ -1326,44 +1420,62 @@ export const VideoView: React.FC<VideoViewProps> = ({
                 const ratio = (e.clientX - rect.left) / rect.width;
                 handleSeek(ratio * 100);
               }}
-              className="h-2 rounded-full relative cursor-pointer bg-stone-900/90 group transition-all"
+              className="h-2.5 rounded-full relative cursor-pointer bg-stone-900/90 group transition-all"
             >
               {/* Highlight Progress fill */}
               <div 
-                className="absolute top-0 bottom-0 left-0 bg-gradient-to-r from-slate-400 via-white to-slate-350 rounded-full shadow-[0_0_8px_rgba(255,255,255,0.7)] transition-all"
+                className="absolute top-0 bottom-0 left-0 bg-gradient-to-r from-slate-400 via-white to-slate-200 rounded-full shadow-[0_0_10px_rgba(255,255,255,0.7)] transition-all"
                 style={{ width: `${progress}%` }}
               />
               {/* Seeking handle thumb */}
               <div 
-                className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full border-2 border-slate-300 shadow-[0_2px_4px_rgba(0,0,0,0.6)] scale-100 opacity-90 hover:scale-125 transition-transform"
-                style={{ left: `calc(${progress}% - 6px)` }}
+                className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-white rounded-full border-2 border-slate-300 shadow-[0_2px_6px_rgba(0,0,0,0.8)] scale-100 opacity-90 group-hover:scale-125 transition-transform"
+                style={{ left: `calc(${progress}% - 7px)` }}
               />
             </div>
           </div>
 
           {/* 4. METALLIC DIGITAL CONTROL DECK: Centered circular buttons in physical layout */}
-          <div className="flex items-center justify-between gap-4 mt-1 w-full px-1">
+          <div className="flex items-center justify-center gap-3 sm:gap-4 mt-1 w-full px-1">
             
-            {/* DECORATIVE MEDIA INDICATOR */}
-            <div className="w-9 h-9 rounded-full border border-stone-900 bg-stone-950/45 flex items-center justify-center text-stone-600 select-none">
-              <Film className="w-4 h-4 animate-pulse" />
-            </div>
+            {/* LOOP / AUTO-ADVANCE TOGGLE BUTTON */}
+            <button
+              onClick={() => setIsLooping(!isLooping)}
+              className={`w-10 h-10 rounded-full border flex items-center justify-center cursor-pointer transition-all active:scale-90 ${
+                isLooping
+                  ? "bg-white/10 border-white/40 text-white shadow-[0_0_12px_rgba(255,255,255,0.3)]"
+                  : "bg-transparent border-stone-850 hover:border-stone-700 text-stone-500 hover:text-stone-300"
+              }`}
+              title={isLooping ? "Looping Active (Repeats video)" : "Auto-advance to Next Video"}
+            >
+              <Repeat className="w-4 h-4" />
+            </button>
 
-            {/* PREVIOUS VIDEO LOOP (SkipBack) */}
+            {/* SKIP BACK 10 SECONDS */}
+            <button
+              onClick={handleSkipBackward}
+              disabled={!selectedVideo}
+              className="w-10 h-10 rounded-full border border-stone-850 bg-transparent flex items-center justify-center text-stone-300 hover:text-white hover:border-stone-600 active:scale-90 disabled:opacity-20 disabled:pointer-events-none transition-all cursor-pointer group"
+              title="Skip Back 10s"
+            >
+              <RotateCcw className="w-4 h-4 group-hover:-rotate-12 transition-transform" />
+            </button>
+
+            {/* PREVIOUS VIDEO */}
             <button
               onClick={handlePrevVideo}
               disabled={!selectedVideo}
-              className="w-10 h-10 rounded-full border border-stone-850 bg-transparent flex items-center justify-center text-stone-300 hover:text-white hover:border-stone-450 active:scale-90 disabled:opacity-20 disabled:pointer-events-none transition-all cursor-pointer"
-              title="Previous Video Loop"
+              className="w-10 h-10 rounded-full border border-stone-850 bg-transparent flex items-center justify-center text-stone-300 hover:text-white hover:border-stone-600 active:scale-90 disabled:opacity-20 disabled:pointer-events-none transition-all cursor-pointer"
+              title="Previous Video"
             >
               <SkipBack className="w-4.5 h-4.5" />
             </button>
 
-            {/* CENTRAL PRIMARY PLAY / PAUSE SPIN BUTTON (Big metallic wheel button) */}
+            {/* CENTRAL PRIMARY PLAY / PAUSE BUTTON (High-gloss metallic wheel) */}
             <button
               onClick={handlePlayPause}
               disabled={!selectedVideo}
-              className="w-14 h-14 rounded-full bg-gradient-to-br from-white via-slate-100 to-slate-400 p-0.5 border-2 border-slate-300 shadow-[0_0_24px_rgba(255,255,255,0.45)] cursor-pointer hover:scale-105 active:scale-95 disabled:opacity-30 disabled:pointer-events-none transition-all text-stone-950 flex items-center justify-center"
+              className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-white via-slate-100 to-slate-400 p-0.5 border-2 border-slate-300 shadow-[0_0_24px_rgba(255,255,255,0.45)] cursor-pointer hover:scale-105 active:scale-95 disabled:opacity-30 disabled:pointer-events-none transition-all text-stone-950 flex items-center justify-center shrink-0"
               title={isPlaying ? "Pause Video" : "Play Video"}
             >
               {isPlaying ? (
@@ -1373,69 +1485,38 @@ export const VideoView: React.FC<VideoViewProps> = ({
               )}
             </button>
 
-            {/* NEXT VIDEO LOOP (SkipForward) */}
+            {/* NEXT VIDEO */}
             <button
               onClick={handleNextVideo}
               disabled={!selectedVideo}
-              className="w-10 h-10 rounded-full border border-stone-850 bg-transparent flex items-center justify-center text-stone-300 hover:text-white hover:border-stone-450 active:scale-90 disabled:opacity-20 disabled:pointer-events-none transition-all cursor-pointer"
-              title="Next Video Loop"
+              className="w-10 h-10 rounded-full border border-stone-850 bg-transparent flex items-center justify-center text-stone-300 hover:text-white hover:border-stone-600 active:scale-90 disabled:opacity-20 disabled:pointer-events-none transition-all cursor-pointer"
+              title="Next Video"
             >
               <SkipForward className="w-4.5 h-4.5" />
+            </button>
+
+            {/* SKIP FORWARD 10 SECONDS */}
+            <button
+              onClick={handleSkipForward}
+              disabled={!selectedVideo}
+              className="w-10 h-10 rounded-full border border-stone-850 bg-transparent flex items-center justify-center text-stone-300 hover:text-white hover:border-stone-600 active:scale-90 disabled:opacity-20 disabled:pointer-events-none transition-all cursor-pointer group"
+              title="Skip Forward 10s"
+            >
+              <RotateCw className="w-4 h-4 group-hover:rotate-12 transition-transform" />
             </button>
 
             {/* RESET / STOP BUTTON */}
             <button
               onClick={handleStop}
               disabled={!selectedVideo}
-              className="w-9 h-9 rounded-full border border-stone-850 bg-transparent flex items-center justify-center text-red-500 hover:text-red-400 hover:border-red-950/65 active:scale-90 disabled:opacity-25 disabled:pointer-events-none transition-all cursor-pointer"
+              className="w-10 h-10 rounded-full border border-stone-850 bg-transparent flex items-center justify-center text-red-500 hover:text-red-400 hover:border-red-950/65 active:scale-90 disabled:opacity-25 disabled:pointer-events-none transition-all cursor-pointer"
               title="Stop Video & Reset"
             >
-              <Square className="w-3.5 h-3.5 fill-red-800/10" />
-            </button>
-
-            {/* TOTAL QUANTUM COMBINED CONSOLE BUTTON */}
-            <button
-              onClick={() => setShowQuantumConsole(true)}
-              className={`w-9 h-9 rounded-full border flex items-center justify-center cursor-pointer transition-all active:scale-90 ${
-                isTotalQuantumActive
-                  ? "bg-amber-500/25 border-amber-500 text-amber-300 shadow-[0_0_16px_rgba(245,158,11,0.6)] animate-pulse"
-                  : "bg-transparent border-stone-850 hover:border-amber-500/60 text-stone-300 hover:text-amber-400"
-              }`}
-              title="Total Quantum: Unified Audio-Video Master DSP"
-            >
-              <Zap className="w-4 h-4 fill-current" />
-            </button>
-
-            {/* WIRELESS TV CAST BUTTON */}
-            <button
-              onClick={() => setShowCastModal(true)}
-              disabled={!selectedVideo}
-              className={`w-9 h-9 rounded-full border flex items-center justify-center cursor-pointer transition-all disabled:opacity-20 disabled:pointer-events-none active:scale-90 ${
-                connectedCastDevice
-                  ? "bg-amber-500/25 border-amber-500 text-amber-300 shadow-[0_0_14px_rgba(245,158,11,0.5)] animate-pulse"
-                  : "bg-transparent border-stone-850 hover:border-amber-500/60 text-stone-300 hover:text-amber-400"
-              }`}
-              title="Cast Video & Audio to Smart TV / Streaming Device"
-            >
-              <Cast className="w-4 h-4" />
-            </button>
-
-            {/* FULL SCREEN TOGGLE */}
-            <button
-              onClick={toggleFullscreen}
-              disabled={!selectedVideo}
-              className={`w-9 h-9 rounded-full border flex items-center justify-center cursor-pointer transition-all disabled:opacity-20 disabled:pointer-events-none ${
-                isFullscreen
-                  ? "bg-white/10 border-slate-350 text-white shadow-[0_0_12px_rgba(255,255,255,0.45)]"
-                  : "bg-transparent border-stone-850 hover:border-stone-500 text-stone-300 hover:text-white"
-              }`}
-              title="Toggle Full Screen"
-            >
-              <Maximize className="w-4 h-4" />
+              <Square className="w-3.5 h-3.5 fill-red-800/20" />
             </button>
           </div>
 
-          {/* 5. HORIZONTAL VOLUME SLIDER: Complete and matches music player volume deck layout exactly */}
+          {/* 5. MASTER VOLUME & TURBO AUDIO STRIP */}
           <div className="w-full mt-2 pt-4 border-t border-stone-900/60 flex items-center gap-3.5 relative select-none">
             
             {/* Volume Mute Toggle */}
@@ -1446,8 +1527,10 @@ export const VideoView: React.FC<VideoViewProps> = ({
             >
               {isMuted || volume === 0 ? (
                 <VolumeX className="w-4.5 h-4.5 text-red-500 animate-pulse" />
+              ) : volume < 0.5 ? (
+                <Volume1 className="w-4.5 h-4.5 text-stone-300" />
               ) : (
-                <Volume2 className="w-4.5 h-4.5" />
+                <Volume2 className="w-4.5 h-4.5 text-stone-300" />
               )}
             </button>
 
@@ -1472,7 +1555,7 @@ export const VideoView: React.FC<VideoViewProps> = ({
             </div>
 
             {/* Value Badge */}
-            <span className="text-[10px] font-sans font-semibold text-white drop-shadow-[0_0_4px_rgba(255,255,255,0.3)] min-w-[36px] text-right">
+            <span className="text-[10px] font-mono font-bold text-white drop-shadow-[0_0_4px_rgba(255,255,255,0.3)] min-w-[36px] text-right">
               {isMuted ? "MUTED" : `${Math.round(volume * 100)}%`}
             </span>
 
@@ -1490,25 +1573,47 @@ export const VideoView: React.FC<VideoViewProps> = ({
             </button>
           </div>
 
-          {/* Video Format Controls: Screen aspect ratio and speed */}
+          {/* 6. STREAMLINED DISPLAY, RATIO & SPEED STUDIO DOCK */}
           <div className="mt-2 pt-4 border-t border-stone-900/60 flex flex-col gap-4">
 
-            {/* Screen Aspect Ratio & Speed Controls */}
-            <div className="grid grid-cols-2 gap-4 pt-1">
+            {/* Control Pods Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               
-              {/* Aspect Ratio Picker */}
-              <div className="flex flex-col gap-1.5 text-left">
+              {/* Pod 1: Screen Fit Mode */}
+              <div className="flex flex-col gap-1.5 text-left bg-black/25 p-2.5 rounded-2xl border border-stone-900">
                 <span className="font-sans text-[8px] font-bold uppercase tracking-widest text-stone-400">
-                  Screen Aspect Ratio
+                  Screen Fit
+                </span>
+                <div className="grid grid-cols-3 gap-1 bg-stone-950/60 p-1 rounded-xl border border-stone-900">
+                  {(["contain", "cover", "fill"] as const).map((fit) => (
+                    <button
+                      key={fit}
+                      onClick={() => setVideoFit(fit)}
+                      className={`py-1 rounded-lg text-[8px] font-sans font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                        videoFit === fit
+                          ? "bg-stone-850 text-white border border-white/10 shadow-sm"
+                          : "text-stone-500 hover:text-stone-300"
+                      }`}
+                    >
+                      {fit}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Pod 2: Aspect Ratio Picker */}
+              <div className="flex flex-col gap-1.5 text-left bg-black/25 p-2.5 rounded-2xl border border-stone-900">
+                <span className="font-sans text-[8px] font-bold uppercase tracking-widest text-stone-400">
+                  Aspect Ratio
                 </span>
                 <div className="grid grid-cols-4 gap-1 bg-stone-950/60 p-1 rounded-xl border border-stone-900">
                   {(["16:9", "21:9", "4:3", "1:1"] as const).map((ratio) => (
                     <button
                       key={ratio}
                       onClick={() => setAspectRatio(ratio)}
-                      className={`py-1 rounded text-[8px] font-mono font-bold transition-all cursor-pointer ${
+                      className={`py-1 rounded-lg text-[8px] font-mono font-bold transition-all cursor-pointer ${
                         aspectRatio === ratio
-                          ? "bg-stone-850 text-white"
+                          ? "bg-stone-850 text-white border border-white/10 shadow-sm"
                           : "text-stone-500 hover:text-stone-300"
                       }`}
                     >
@@ -1518,29 +1623,93 @@ export const VideoView: React.FC<VideoViewProps> = ({
                 </div>
               </div>
 
-              {/* Playback speed Selection */}
-              <div className="flex flex-col gap-1.5 text-left">
+              {/* Pod 3: Playback Speed Selection */}
+              <div className="flex flex-col gap-1.5 text-left bg-black/25 p-2.5 rounded-2xl border border-stone-900">
                 <span className="font-sans text-[8px] font-bold uppercase tracking-widest text-stone-400">
-                  Speed Control
+                  Playback Speed
                 </span>
-                <div className="relative">
-                  <select
-                    value={playbackSpeed}
-                    onChange={(e) => setPlaybackSpeed(parseFloat(e.target.value))}
-                    className="w-full appearance-none polished-metal-dropdown font-mono text-sm p-2.5 px-3.5 pr-8 rounded-xl cursor-pointer outline-none"
-                  >
-                    <option value="0.5">0.5x Slow</option>
-                    <option value="1">1.0x Normal</option>
-                    <option value="1.25">1.25x Fast</option>
-                    <option value="1.5">1.5x Turbo</option>
-                    <option value="2">2.0x Double</option>
-                  </select>
-                  <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-stone-900 font-bold z-10">
-                    <Clock className="w-3.5 h-3.5" />
-                  </div>
+                <div className="grid grid-cols-5 gap-1 bg-stone-950/60 p-1 rounded-xl border border-stone-900">
+                  {[0.5, 1, 1.25, 1.5, 2].map((spd) => (
+                    <button
+                      key={spd}
+                      onClick={() => setPlaybackSpeed(spd)}
+                      className={`py-1 rounded-lg text-[8px] font-mono font-bold transition-all cursor-pointer ${
+                        playbackSpeed === spd
+                          ? "bg-stone-850 text-white border border-white/10 shadow-sm"
+                          : "text-stone-500 hover:text-stone-300"
+                      }`}
+                    >
+                      {spd}x
+                    </button>
+                  ))}
                 </div>
               </div>
 
+            </div>
+
+            {/* Quick Action Utilities Row */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <div className="flex items-center gap-2">
+                {/* CC Captions Button */}
+                <button
+                  onClick={() => setCaptionsEnabled(!captionsEnabled)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-all duration-150 cursor-pointer active:scale-95 text-[9px] font-sans font-bold uppercase tracking-wider ${
+                    captionsEnabled
+                      ? "bg-red-500/15 border-red-500/40 text-red-400 shadow-[0_0_10px_rgba(239,68,68,0.2)]"
+                      : "bg-stone-900/80 hover:bg-stone-850 border-stone-800 text-stone-400 hover:text-white"
+                  }`}
+                  title="Toggle Subtitles / Closed Captions"
+                >
+                  <Subtitles className={`w-3.5 h-3.5 ${captionsEnabled ? "text-red-400 animate-pulse" : ""}`} />
+                  <span>CC Captions</span>
+                </button>
+
+                {/* Picture in Picture Button */}
+                <button
+                  onClick={togglePictureInPicture}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-all duration-150 cursor-pointer active:scale-95 text-[9px] font-sans font-bold uppercase tracking-wider ${
+                    isPiPActive
+                      ? "bg-amber-500/20 border-amber-500/40 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.2)]"
+                      : "bg-stone-900/80 hover:bg-stone-850 border-stone-800 text-stone-400 hover:text-white"
+                  }`}
+                  title="Pop-out Picture-in-Picture window"
+                >
+                  <PictureInPicture className="w-3.5 h-3.5" />
+                  <span>Pop-out PiP</span>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {/* Cast TV Button */}
+                <button
+                  onClick={() => setShowCastModal(true)}
+                  disabled={!selectedVideo}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-all duration-150 cursor-pointer active:scale-95 text-[9px] font-sans font-bold uppercase tracking-wider disabled:opacity-30 disabled:pointer-events-none ${
+                    connectedCastDevice
+                      ? "bg-amber-500/20 border-amber-500/40 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.2)]"
+                      : "bg-stone-900/80 hover:bg-stone-850 border-stone-800 text-stone-400 hover:text-white"
+                  }`}
+                  title="Stream Video & Audio to Smart TV"
+                >
+                  <Cast className="w-3.5 h-3.5" />
+                  <span>{connectedCastDevice ? `Cast: ${connectedCastDevice.name}` : "Wireless Cast"}</span>
+                </button>
+
+                {/* Fullscreen Button */}
+                <button
+                  onClick={toggleFullscreen}
+                  disabled={!selectedVideo}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-all duration-150 cursor-pointer active:scale-95 text-[9px] font-sans font-bold uppercase tracking-wider disabled:opacity-30 disabled:pointer-events-none ${
+                    isFullscreen
+                      ? "bg-white/15 border-white/30 text-white shadow-[0_0_12px_rgba(255,255,255,0.3)]"
+                      : "bg-stone-900/80 hover:bg-stone-850 border-stone-800 text-stone-400 hover:text-white"
+                  }`}
+                  title="Toggle Fullscreen mode"
+                >
+                  <Maximize className="w-3.5 h-3.5" />
+                  <span>Fullscreen</span>
+                </button>
+              </div>
             </div>
 
           </div>

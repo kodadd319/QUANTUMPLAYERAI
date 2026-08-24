@@ -34,18 +34,20 @@ export const UpgradeView: React.FC<UpgradeViewProps> = ({
   const currentUser = auth.currentUser;
   const uid = currentUser?.uid;
 
-  // Build Stripe Links dynamically with client_reference_id containing the UID
-  const monthlyLink = uid 
-    ? `https://buy.stripe.com/8x200b5cT2Ye7jR6dU73G08?client_reference_id=${uid}` 
-    : "https://buy.stripe.com/8x200b5cT2Ye7jR6dU73G08";
+  // Build Stripe Links dynamically with client_reference_id containing the UID and prefilled email
+  const buildCheckoutUrl = (baseUrl: string) => {
+    if (!uid) return baseUrl;
+    const url = new URL(baseUrl);
+    url.searchParams.set("client_reference_id", uid);
+    if (currentUser?.email) {
+      url.searchParams.set("prefilled_email", currentUser.email);
+    }
+    return url.toString();
+  };
 
-  const annualLink = uid 
-    ? `https://buy.stripe.com/8x2dR17l1aqGfQn9q673G09?client_reference_id=${uid}` 
-    : "https://buy.stripe.com/8x2dR17l1aqGfQn9q673G09";
-
-  const lifetimeLink = uid 
-    ? `https://buy.stripe.com/7sY4grbBhfL01Zx6dU73G0a?client_reference_id=${uid}` 
-    : "https://buy.stripe.com/7sY4grbBhfL01Zx6dU73G0a";
+  const monthlyLink = buildCheckoutUrl("https://buy.stripe.com/aFabIT34LfL0fQn59Q73G0c");
+  const annualLink = buildCheckoutUrl("https://buy.stripe.com/3cI7sDdJp8iygUr1XE73G0b");
+  const lifetimeLink = buildCheckoutUrl("https://buy.stripe.com/7sY4grbBhfL01Zx6dU73G0a");
 
   const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     if (!uid) {
@@ -238,12 +240,12 @@ export const UpgradeView: React.FC<UpgradeViewProps> = ({
               </h4>
               <div className="flex flex-col gap-1 my-4">
                 <div className="flex items-baseline gap-1.5">
-                  <span className="text-3xl font-sans font-black text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.2)]">$9.99</span>
+                  <span className="text-3xl font-sans font-black text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.2)]">$5.99</span>
                   <span className="text-[10px] font-sans text-stone-400 uppercase tracking-wider font-semibold">/ month</span>
                 </div>
               </div>
               <p className="text-[9px] font-sans text-stone-500 uppercase tracking-wider mb-5 font-light leading-relaxed">
-                Full unlimited premium tools. Cancel anytime in your user profile.
+                Full unlimited premium tools. Access to all AI audio & video features. Rebills monthly at $5.99. Cancel anytime.
               </p>
             </div>
             <a
@@ -261,7 +263,7 @@ export const UpgradeView: React.FC<UpgradeViewProps> = ({
           {/* Annual Subscription */}
           <div className="p-5 rounded-2xl bg-gradient-to-b from-[#1a110f] to-[#0a0504] border border-stone-850 flex flex-col justify-between relative group hover:border-white transition-all">
             <div className="absolute top-3 right-3 bg-stone-900 text-[6.5px] font-sans text-emerald-400 font-bold uppercase px-2 py-0.5 rounded tracking-wider border border-emerald-500/20 shadow">
-              SAVE OVER 37%
+              SAVE OVER 65%
             </div>
             <div>
               <span className="text-[8px] font-sans font-semibold text-slate-200 uppercase tracking-widest block mb-1">
@@ -272,15 +274,15 @@ export const UpgradeView: React.FC<UpgradeViewProps> = ({
               </h4>
               <div className="flex flex-col gap-1 my-4">
                 <div className="flex items-baseline gap-1.5">
-                  <span className="text-3xl font-sans font-black text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.2)]">$74.99</span>
+                  <span className="text-3xl font-sans font-black text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.2)]">$24.99</span>
                   <span className="text-[10px] font-sans text-stone-350 uppercase tracking-wider font-semibold">/ year</span>
                 </div>
                 <span className="text-[9.5px] font-sans text-emerald-400 uppercase font-bold tracking-wider">
-                  Equivalent to just $6.25 / month!
+                  Equivalent to just ~$2.08 / month!
                 </span>
               </div>
               <p className="text-[9px] font-sans text-stone-550 uppercase tracking-wider mb-5 font-light leading-relaxed">
-                Complete unrestricted elite package. Best rate guaranteed.
+                Complete unrestricted elite package. Rebills annually at $24.99. Best rate guaranteed.
               </p>
             </div>
             <a
@@ -309,7 +311,7 @@ export const UpgradeView: React.FC<UpgradeViewProps> = ({
               </h4>
               <div className="flex flex-col gap-1 my-4">
                 <div className="flex items-baseline gap-1.5">
-                  <span className="text-3xl font-sans font-black text-amber-400 drop-shadow-[0_0_8px_rgba(245,158,11,0.35)]">$99.99</span>
+                  <span className="text-3xl font-sans font-black text-amber-400 drop-shadow-[0_0_8px_rgba(245,158,11,0.35)]">$49.99</span>
                   <span className="text-[10px] font-sans text-stone-300 uppercase tracking-wider font-semibold">/ one-time</span>
                 </div>
                 <span className="text-[9.5px] font-sans text-amber-500 uppercase font-bold tracking-wider">
@@ -317,7 +319,7 @@ export const UpgradeView: React.FC<UpgradeViewProps> = ({
                 </span>
               </div>
               <p className="text-[9px] font-sans text-slate-300 uppercase tracking-wider mb-5 font-semibold">
-                No monthly or annual rebills. Lifetime access to all premium features.
+                One payment, one time, lifetime membership. No monthly or annual rebills. Lifetime access to all premium features.
               </p>
             </div>
             <a

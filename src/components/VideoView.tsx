@@ -39,12 +39,14 @@ import {
   Cast,
   Zap,
   Repeat,
-  PictureInPicture
+  PictureInPicture,
+  Info
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { CastModal, CastDevice } from "./CastModal";
 import { TotalQuantumConsole } from "./TotalQuantumConsole";
 import { DspSettings } from "../types";
+import { castSyncManager, CastMediaPayload } from "../utils/castSync";
 import { 
   collection, 
   addDoc, 
@@ -143,48 +145,48 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 const BUILTIN_VIDEOS: VideoTrack[] = [
   {
     id: "sample-1",
-    name: "Neon Night Highway Sweep",
-    creator: "Acoustic Car Club",
+    name: "Sintel Cinematic Trailer",
+    creator: "Blender Animation Studio",
     category: "Cinematic",
-    duration: "0:15",
-    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-    thumbnail: "https://images.unsplash.com/photo-1518173946687-a4c8a383392e?w=500&auto=format&fit=crop&q=80"
+    duration: "0:52",
+    url: "https://media.w3.org/2010/05/sintel/trailer.mp4",
+    thumbnail: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=500&auto=format&fit=crop&q=80"
   },
   {
     id: "sample-2",
-    name: "Subwoofer Cone Excursion Pattern",
-    creator: "Decibel Lab Tech",
-    category: "Acoustic Calibration",
-    duration: "0:15",
-    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-    thumbnail: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=500&auto=format&fit=crop&q=80"
-  },
-  {
-    id: "sample-3",
-    name: "Vaporwave Retro Horizon Drive",
-    creator: "Studio Calibration Unit",
-    category: "Futuristic",
-    duration: "0:15",
-    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
-    thumbnail: "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=500&auto=format&fit=crop&q=80"
-  },
-  {
-    id: "sample-4",
-    name: "Deep Sea Sub-Bass Thermal Wave",
+    name: "Deep Ocean Wildlife Expedition",
     creator: "Oceanic Hydroacoustics",
     category: "Acoustic Calibration",
-    duration: "0:15",
-    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
+    duration: "0:46",
+    url: "https://vjs.zencdn.net/v/oceans.mp4",
     thumbnail: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&auto=format&fit=crop&q=80"
   },
   {
-    id: "sample-5",
-    name: "Cybernetic Laser Light Matrix",
-    creator: "RGB Laser Engineers",
+    id: "sample-3",
+    name: "Big Buck Animation Excursion",
+    creator: "Peach Open Movie Project",
+    category: "Futuristic",
+    duration: "0:33",
+    url: "https://media.w3.org/2010/05/bunny/trailer.mp4",
+    thumbnail: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=500&auto=format&fit=crop&q=80"
+  },
+  {
+    id: "sample-4",
+    name: "Botanical Color Sweep",
+    creator: "Acoustic Lab Tech",
     category: "Cinematic",
-    duration: "0:15",
-    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4",
-    thumbnail: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80"
+    duration: "0:05",
+    url: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+    thumbnail: "https://images.unsplash.com/photo-1518173946687-a4c8a383392e?w=500&auto=format&fit=crop&q=80"
+  },
+  {
+    id: "sample-5",
+    name: "Motion Excursion Spectrum",
+    creator: "Studio Calibration Unit",
+    category: "Acoustic Calibration",
+    duration: "0:10",
+    url: "https://www.w3schools.com/html/mov_bbb.mp4",
+    thumbnail: "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=500&auto=format&fit=crop&q=80"
   }
 ];
 
@@ -285,43 +287,69 @@ export const VideoView: React.FC<VideoViewProps> = ({
 }) => {
   // Video Sources State
   const [resolvedVideoUrl, setResolvedVideoUrl] = useState<string>("");
-  const localVideoUrlsRef = useRef<Record<string, string>>({});
+  const [videoLoadError, setVideoLoadError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState<number>(0);
+  const activeBlobUrlsRef = useRef<Map<string, string>>(new Map());
+  const currentVideoIdRef = useRef<string | null>(null);
+
+  // Clean up object URLs only when the component unmounts
+  useEffect(() => {
+    return () => {
+      activeBlobUrlsRef.current.forEach((url) => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch (e) {}
+      });
+      activeBlobUrlsRef.current.clear();
+    };
+  }, []);
 
   useEffect(() => {
-    let objectUrlToCleanup: string | null = null;
     let isCurrent = true;
+    setVideoLoadError(null);
 
     const resolveUrl = async () => {
-      if (!selectedVideo) {
-        setResolvedVideoUrl("");
+      if (!selectedVideo || !selectedVideo.url) {
+        if (isCurrent) setResolvedVideoUrl("");
         return;
       }
       const url = selectedVideo.url;
-      if (url && url.startsWith("local-db://")) {
+      if (url.startsWith("local-db://")) {
         const id = url.replace("local-db://", "");
         
-        // Check in-memory cache first
-        if (localVideoUrlsRef.current[id]) {
-          setResolvedVideoUrl(localVideoUrlsRef.current[id]);
+        // Check in-memory cache first (unless retrying)
+        if (activeBlobUrlsRef.current.has(id) && retryKey === 0) {
+          const cachedUrl = activeBlobUrlsRef.current.get(id)!;
+          if (isCurrent) {
+            setResolvedVideoUrl(cachedUrl);
+          }
           return;
         }
 
         try {
           const blob = await getVideoBlob(id);
           if (blob && isCurrent) {
+            // Revoke old URL for this specific ID if we are explicitly retrying
+            if (activeBlobUrlsRef.current.has(id)) {
+              try {
+                URL.revokeObjectURL(activeBlobUrlsRef.current.get(id)!);
+              } catch (e) {}
+            }
             const objUrl = URL.createObjectURL(blob);
-            objectUrlToCleanup = objUrl;
-            localVideoUrlsRef.current[id] = objUrl;
+            activeBlobUrlsRef.current.set(id, objUrl);
             setResolvedVideoUrl(objUrl);
             return;
+          } else if (isCurrent) {
+            setVideoLoadError("Local video file could not be read from storage.");
           }
         } catch (err) {
-          console.error("Failed to load local video blob:", err);
+          console.warn("Failed to load local video blob:", err);
+          if (isCurrent) setVideoLoadError("Local video file could not be read from storage.");
         }
-      }
-      
-      if (isCurrent) {
-        setResolvedVideoUrl(url);
+      } else {
+        if (isCurrent) {
+          setResolvedVideoUrl(url);
+        }
       }
     };
 
@@ -329,11 +357,8 @@ export const VideoView: React.FC<VideoViewProps> = ({
 
     return () => {
       isCurrent = false;
-      if (objectUrlToCleanup) {
-        URL.revokeObjectURL(objectUrlToCleanup);
-      }
     };
-  }, [selectedVideo]);
+  }, [selectedVideo?.id, selectedVideo?.url, retryKey]);
 
   const [customVideoUrl, setCustomVideoUrl] = useState<string | null>(null);
   const [customVideoName, setCustomVideoName] = useState<string>("");
@@ -511,17 +536,15 @@ export const VideoView: React.FC<VideoViewProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadError, setUploadError] = useState("");
 
-  // Reset players state cleanly on video track change
+  // Reset players state cleanly on video track ID change
   useEffect(() => {
-    const raw = videoRawRef.current;
-    if (raw) {
-      if (typeof raw.pause === "function") raw.pause();
-      setIsPlaying(false);
+    if (selectedVideo?.id && currentVideoIdRef.current !== selectedVideo.id) {
+      currentVideoIdRef.current = selectedVideo.id;
       setProgress(0);
       setCurrentTime(0);
+      setAiOptimizedFilters(null);
     }
-    setAiOptimizedFilters(null);
-  }, [selectedVideo]);
+  }, [selectedVideo?.id]);
 
   // Audio mute/unmute and volume bindings
   useEffect(() => {
@@ -534,7 +557,7 @@ export const VideoView: React.FC<VideoViewProps> = ({
         console.warn("Volume set error:", e);
       }
     }
-  }, [volume, isMuted, selectedVideo, resolvedVideoUrl]);
+  }, [volume, isMuted]);
 
   // Speed binding
   useEffect(() => {
@@ -546,7 +569,36 @@ export const VideoView: React.FC<VideoViewProps> = ({
         console.warn("Playback rate error:", e);
       }
     }
-  }, [playbackSpeed, selectedVideo, resolvedVideoUrl]);
+  }, [playbackSpeed]);
+
+  // Connect Web Audio DSP when Total Quantum is active on playing media
+  useEffect(() => {
+    if (isTotalQuantumActive && videoRawRef.current && ensureEngine && isPlaying) {
+      try {
+        ensureEngine(videoRawRef.current);
+      } catch (err) {
+        console.warn("AudioEngine attach caught:", err);
+      }
+    }
+  }, [isTotalQuantumActive, isPlaying, ensureEngine]);
+
+  // Synchronize media state to active Cast receiver display
+  useEffect(() => {
+    if (connectedCastDevice && selectedVideo) {
+      const payload: CastMediaPayload = {
+        id: selectedVideo.id,
+        name: selectedVideo.name || "Video Stream",
+        url: resolvedVideoUrl || selectedVideo.url,
+        currentTime: currentTime || 0,
+        duration: duration || 0,
+        isPlaying: isPlaying,
+        volume: isMuted ? 0 : volume,
+        isMuted: isMuted,
+        updatedAt: Date.now()
+      };
+      castSyncManager.broadcastMediaState(payload);
+    }
+  }, [connectedCastDevice, selectedVideo?.id, resolvedVideoUrl, isPlaying, isMuted, volume]);
 
   // Autoplay when resolved URL is ready
   useEffect(() => {
@@ -559,34 +611,49 @@ export const VideoView: React.FC<VideoViewProps> = ({
         const playPromise = raw.play();
         if (playPromise && typeof playPromise.catch === "function") {
           playPromise
-            .then(() => setIsPlaying(true))
+            .then(() => {
+              setIsPlaying(true);
+              setVideoLoadError(null);
+            })
             .catch((e: any) => {
-              console.log("Autoplay waiting for user interaction:", e);
-              setIsPlaying(false);
+              console.log("Autoplay waiting for user interaction or paused state:", e);
+              setIsPlaying(!raw.paused);
             });
         }
       } catch (err) {
         console.warn("Autoplay error:", err);
       }
     }
-  }, [resolvedVideoUrl]);
+  }, [resolvedVideoUrl, retryKey]);
 
   // Play Pause Core Loop
   const handlePlayPause = () => {
     const raw = videoRawRef.current;
     if (!raw) return;
 
-    if (isPlaying) {
-      if (typeof raw.pause === "function") raw.pause();
+    if (!raw.paused) {
+      raw.pause();
       setIsPlaying(false);
     } else {
       if (ensureEngine && isTotalQuantumActive) {
-        ensureEngine(raw);
+        try {
+          ensureEngine(raw);
+        } catch (e) {}
       }
-      if (typeof raw.play === "function") {
-        raw.play()?.catch((e: any) => console.log("Native video play error:", e));
+      const playPromise = raw.play();
+      if (playPromise && typeof playPromise.catch === "function") {
+        playPromise
+          .then(() => {
+            setIsPlaying(true);
+            setVideoLoadError(null);
+          })
+          .catch((e: any) => {
+            console.log("Native video play error:", e);
+            setIsPlaying(false);
+          });
+      } else {
+        setIsPlaying(true);
       }
-      setIsPlaying(true);
     }
   };
 
@@ -1028,7 +1095,39 @@ export const VideoView: React.FC<VideoViewProps> = ({
           >
             {/* High Performance AI Enhanced Video Player Engine */}
             <div className="absolute inset-0 w-full h-full flex items-center justify-center overflow-hidden">
-              {selectedVideo && resolvedVideoUrl ? (
+              {selectedVideo && videoLoadError ? (
+                <div className="flex flex-col items-center justify-center p-6 text-center text-stone-400 gap-3 w-full h-full bg-stone-950/95 backdrop-blur-md z-30">
+                  <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-inner">
+                    <Info className="w-6 h-6" />
+                  </div>
+                  <div className="flex flex-col items-center max-w-sm">
+                    <h3 className="text-xs font-sans font-bold text-white uppercase tracking-wider">Video Stream Interrupted</h3>
+                    <p className="text-[10px] text-stone-400 font-sans mt-1 leading-relaxed">
+                      {videoLoadError}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 mt-2">
+                    <button
+                      id="video-player-retry-btn"
+                      onClick={() => {
+                        setVideoLoadError(null);
+                        setRetryKey((prev) => prev + 1);
+                      }}
+                      className="px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-all shadow-md active:scale-95 flex items-center gap-1.5"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      Retry Stream
+                    </button>
+                    <button
+                      id="video-player-skip-next-btn"
+                      onClick={() => handleNextVideo()}
+                      className="px-3.5 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold transition-all border border-stone-700 active:scale-95"
+                    >
+                      Next Video
+                    </button>
+                  </div>
+                </div>
+              ) : selectedVideo && resolvedVideoUrl ? (
                 <video
                   ref={videoRawRef}
                   title={selectedVideo.name || "Video Stream"}
@@ -1037,13 +1136,14 @@ export const VideoView: React.FC<VideoViewProps> = ({
                   loop={isLooping}
                   muted={isMuted}
                   playsInline
-                  crossOrigin="anonymous"
                   onTimeUpdate={(e) => {
                     const cur = e.currentTarget.currentTime;
                     const dur = e.currentTarget.duration;
                     if (typeof cur === "number" && !isNaN(cur)) {
                       setCurrentTime(cur);
-                      if (dur) setProgress((cur / dur) * 100);
+                      if (dur && !isNaN(dur) && dur > 0) {
+                        setProgress((cur / dur) * 100);
+                      }
                     }
                   }}
                   onLoadedMetadata={(e) => {
@@ -1051,8 +1151,13 @@ export const VideoView: React.FC<VideoViewProps> = ({
                     if (dur && typeof dur === "number" && !isNaN(dur)) {
                       setDuration(dur);
                     }
+                    setVideoLoadError(null);
+                  }}
+                  onCanPlay={() => {
+                    setVideoLoadError(null);
                   }}
                   onPlay={() => setIsPlaying(true)}
+                  onPlaying={() => setIsPlaying(true)}
                   onPause={() => setIsPlaying(false)}
                   onEnded={() => {
                     if (isLooping) {
@@ -1065,8 +1170,10 @@ export const VideoView: React.FC<VideoViewProps> = ({
                     }
                   }}
                   onError={(e) => {
-                    console.error("Video load error:", e?.type || "error");
+                    const mediaErr = (e.currentTarget as HTMLVideoElement).error;
+                    if (mediaErr && mediaErr.code === 1) return; // ignore user/script aborts
                     setIsPlaying(false);
+                    setVideoLoadError("Video could not be loaded or stream was interrupted. Check connection or select another track.");
                   }}
                   style={{
                     ...enhancedStyles,
@@ -1780,6 +1887,25 @@ export const VideoView: React.FC<VideoViewProps> = ({
         videoUrl={selectedVideo?.url || resolvedVideoUrl}
         connectedDevice={connectedCastDevice}
         onSelectDevice={(device) => setConnectedCastDevice(device)}
+        currentTime={currentTime}
+        duration={duration}
+        isPlaying={isPlaying}
+        volume={volume}
+        isMuted={isMuted}
+        onPlayPause={handlePlayPause}
+        onSeek={(sec) => {
+          if (videoRawRef.current) videoRawRef.current.currentTime = sec;
+          setCurrentTime(sec);
+        }}
+        onVolumeChange={(v) => {
+          setVolume(v);
+          if (videoRawRef.current) videoRawRef.current.volume = v;
+        }}
+        onToggleMute={() => {
+          const next = !isMuted;
+          setIsMuted(next);
+          if (videoRawRef.current) videoRawRef.current.muted = next;
+        }}
       />
 
       {/* Total Quantum Console Overlay */}

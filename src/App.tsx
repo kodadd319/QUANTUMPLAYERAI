@@ -48,6 +48,7 @@ import { AiEnhancementView } from "./components/AiEnhancementView";
 import { AiVideoEnhancementView } from "./components/AiVideoEnhancementView";
 import { VideoView } from "./components/VideoView";
 import { MyVideosView } from "./components/MyVideosView";
+import { CastReceiver } from "./components/CastReceiver";
 import { motion, AnimatePresence } from "motion/react"; 
 
 // Firebase Integrations Block 
@@ -58,6 +59,7 @@ import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { getLocalTracks, storeLocalTrack, deleteLocalTrack, getLocalVideos, storeLocalVideo, deleteLocalVideo } from "./utils/localMediaStorage"; 
 import { deleteVideoBlob } from "./utils/videoStorage"; 
 import { isAdminUserEmail, getAdminEmailDisplay } from "./utils/admin"; 
+import { extractVideoFrame, getOrGenerateVideoThumbnail, videoThumbnailCache } from "./utils/videoThumbnailGenerator"; 
 
 // Standard Operation Types for Firestore Hardened Audits 
 enum OperationType {   
@@ -177,91 +179,28 @@ function scanMetadata(file: File): Promise<{ title: string; artist: string; albu
   }); 
 }
 
-// Extract thumbnail frame and metadata from local video file
-function scanVideoMetadata(file: File): Promise<{ title: string; creator: string; thumbnail: string; duration: string }> {
-  return new Promise((resolve) => {
-    // Fall back to actual file name as the title
-    const defaultTitle = file ? file.name : "Unknown Video";
-    const defaultCreator = "Local Creator";
-    let durationStr = "Local Video";
+// Extract thumbnail frame picture and duration metadata directly from local video file
+async function scanVideoMetadata(file: File): Promise<{ title: string; creator: string; thumbnail: string; duration: string }> {
+  const defaultTitle = file ? file.name.replace(/\.[^/.]+$/, "") : "Unknown Video";
+  const defaultCreator = "Local Storage";
 
-    const video = document.createElement("video");
-    video.preload = "metadata";
-    video.muted = true;
-    video.playsInline = true;
-
-    const url = URL.createObjectURL(file);
-    video.src = url;
-
-    // Timeout fallback after 2.5 seconds to prevent stalling the upload flow
-    const timeout = setTimeout(() => {
-      video.src = "";
-      URL.revokeObjectURL(url);
-      resolve({
-        title: defaultTitle,
-        creator: defaultCreator,
-        thumbnail: "", // Fallback to placeholder UI render
-        duration: durationStr
-      });
-    }, 2500);
-
-    video.onloadedmetadata = () => {
-      const d = video.duration;
-      if (!isNaN(d) && d > 0) {
-        const mins = Math.floor(d / 60);
-        const secs = Math.floor(d % 60);
-        durationStr = `${mins}:${secs.toString().padStart(2, "0")}`;
-      }
-      // Seek to 10% of the video to capture an interesting frame instead of a black intro frame
-      const seekTime = Math.min(1.0, video.duration * 0.1);
-      video.currentTime = seekTime;
+  try {
+    const frameResult = await extractVideoFrame(file);
+    return {
+      title: defaultTitle,
+      creator: defaultCreator,
+      thumbnail: frameResult.dataUrl,
+      duration: frameResult.durationStr
     };
-
-    video.onseeked = () => {
-      clearTimeout(timeout);
-      try {
-        const canvas = document.createElement("canvas");
-        canvas.width = video.videoWidth || 640;
-        canvas.height = video.videoHeight || 360;
-        const ctx = canvas.getContext("2d");
-        if (ctx) {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
-          video.src = "";
-          URL.revokeObjectURL(url);
-          resolve({
-            title: defaultTitle,
-            creator: defaultCreator,
-            thumbnail: dataUrl,
-            duration: durationStr
-          });
-          return;
-        }
-      } catch (err) {
-        console.error("Failed to capture video frame:", err);
-      }
-      video.src = "";
-      URL.revokeObjectURL(url);
-      resolve({
-        title: defaultTitle,
-        creator: defaultCreator,
-        thumbnail: "",
-        duration: durationStr
-      });
+  } catch (err) {
+    console.warn("Video frame extraction notice, using fallback:", err);
+    return {
+      title: defaultTitle,
+      creator: defaultCreator,
+      thumbnail: "",
+      duration: "0:30"
     };
-
-    video.onerror = () => {
-      clearTimeout(timeout);
-      video.src = "";
-      URL.revokeObjectURL(url);
-      resolve({
-        title: defaultTitle,
-        creator: defaultCreator,
-        thumbnail: "",
-        duration: durationStr
-      });
-    };
-  });
+  }
 }
 
 // Sound presets designed for car audio rigs 
@@ -467,10 +406,14 @@ function MainApp() {
     setAudioScanError("");
     setAudioScanSuccess("");
     if (musicScanInputRef.current) {
+      musicScanInputRef.current.value = "";
       musicScanInputRef.current.click();
     } else {
-      const el = document.getElementById("music-scanner");
-      if (el) el.click();
+      const el = document.getElementById("music-scanner") as HTMLInputElement | null;
+      if (el) {
+        el.value = "";
+        el.click();
+      }
     }
   };
 
@@ -478,10 +421,14 @@ function MainApp() {
     setVideoScanError("");
     setVideoScanSuccess("");
     if (videoScanInputRef.current) {
+      videoScanInputRef.current.value = "";
       videoScanInputRef.current.click();
     } else {
-      const el = document.getElementById("video-scanner");
-      if (el) el.click();
+      const el = document.getElementById("video-scanner") as HTMLInputElement | null;
+      if (el) {
+        el.value = "";
+        el.click();
+      }
     }
   };
 
@@ -499,22 +446,22 @@ function MainApp() {
     setAudioScanSuccess("");
 
     try {
-      setAudioCurrentFile("Initializing local device file structure query...");
-      await new Promise((r) => setTimeout(r, 400));
+      setAudioCurrentFile("Reading selected audio files from storage...");
+      await new Promise((r) => setTimeout(r, 250));
 
       const allowedExtensions = [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"];
       const filteredFiles = files.filter(file => {
         const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
-        return allowedExtensions.includes(ext);
+        return allowedExtensions.includes(ext) || file.type.startsWith("audio/");
       });
 
       if (filteredFiles.length === 0) {
-        throw new Error("No valid local audio files found matching extensions (.mp3, .wav, .m4a, .aac, .ogg, .flac).");
+        throw new Error("No valid audio files found (.mp3, .wav, .m4a, .aac, .ogg, .flac).");
       }
 
       const totalTracks = filteredFiles.length;
-      setAudioCurrentFile(`Discovered ${totalTracks} compatible tracks. Parsing local metadata...`);
-      await new Promise((r) => setTimeout(r, 600));
+      setAudioCurrentFile(`Loaded ${totalTracks} audio file${totalTracks === 1 ? "" : "s"}. Scanning tags & audio waveforms...`);
+      await new Promise((r) => setTimeout(r, 350));
 
       let processedCount = 0;
       for (const file of filteredFiles) {
@@ -542,7 +489,7 @@ function MainApp() {
           genre = "Pop Vocal";
         }
 
-        setAudioCurrentFile(`Processing: ${file.name}`);
+        setAudioCurrentFile(`Scanning & indexing: ${file.name}`);
 
         let metadata;
         try {
@@ -572,14 +519,14 @@ function MainApp() {
         processedCount++;
 
         setAudioScanProgress(Math.round((processedCount / totalTracks) * 100));
-        await new Promise((r) => setTimeout(r, 30));
+        await new Promise((r) => setTimeout(r, 20));
       }
 
       await refreshLocalMedia();
-      setAudioScanSuccess(`Scan Complete! Discovered and synchronized ${processedCount} high-fidelity local tracks to your offline library.`);
+      setAudioScanSuccess(`Scan Complete! Successfully added ${processedCount} audio track${processedCount === 1 ? "" : "s"} to your offline library.`);
     } catch (err: any) {
       console.error("Local audio scanner failed:", err);
-      setAudioScanError(err.message || "An error occurred while scanning your device storage.");
+      setAudioScanError(err.message || "An error occurred while scanning your selected audio files.");
     } finally {
       setIsScanningAudio(false);
       setAudioCurrentFile(null);
@@ -601,22 +548,22 @@ function MainApp() {
     setVideoScanSuccess("");
 
     try {
-      setVideoCurrentFile("Initializing local device video structure query...");
-      await new Promise((r) => setTimeout(r, 400));
+      setVideoCurrentFile("Reading selected video files from storage...");
+      await new Promise((r) => setTimeout(r, 250));
 
       const allowedExtensions = [".mp4", ".webm", ".avi", ".mkv", ".mov", ".3gp", ".m4v"];
       const filteredFiles = files.filter(file => {
         const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
-        return allowedExtensions.includes(ext);
+        return allowedExtensions.includes(ext) || file.type.startsWith("video/");
       });
 
       if (filteredFiles.length === 0) {
-        throw new Error("No valid local video files found matching extensions (.mp4, .webm, .avi, .mkv, .mov, .3gp, .m4v).");
+        throw new Error("No valid video files found (.mp4, .webm, .avi, .mkv, .mov, .3gp, .m4v).");
       }
 
       const totalVideos = filteredFiles.length;
-      setVideoCurrentFile(`Discovered ${totalVideos} compatible video tracks. Parsing local metadata...`);
-      await new Promise((r) => setTimeout(r, 600));
+      setVideoCurrentFile(`Loaded ${totalVideos} video file${totalVideos === 1 ? "" : "s"}. Extracting frames and metadata...`);
+      await new Promise((r) => setTimeout(r, 350));
 
       let processedCount = 0;
       for (const file of filteredFiles) {
@@ -632,19 +579,18 @@ function MainApp() {
           category = parts[0];
         }
 
-        let thumbnail = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80";
-        const lowerName = file.name.toLowerCase();
-        if (lowerName.includes("car") || lowerName.includes("drive") || lowerName.includes("speed")) {
-          thumbnail = "https://images.unsplash.com/photo-1518173946687-a4c8a383392e?w=500&auto=format&fit=crop&q=80";
-        } else if (lowerName.includes("bass") || lowerName.includes("audio") || lowerName.includes("sound")) {
-          thumbnail = "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=500&auto=format&fit=crop&q=80";
-        } else if (lowerName.includes("neon") || lowerName.includes("laser") || lowerName.includes("cyber")) {
-          thumbnail = "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=500&auto=format&fit=crop&q=80";
-        } else if (lowerName.includes("ocean") || lowerName.includes("sea") || lowerName.includes("water")) {
-          thumbnail = "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&auto=format&fit=crop&q=80";
-        }
+        setVideoCurrentFile(`Extracting frame: ${file.name}`);
 
-        setVideoCurrentFile(`Processing: ${file.name}`);
+        let thumbnail = "";
+        let durationStr = "0:30";
+
+        try {
+          const frameResult = await extractVideoFrame(file);
+          thumbnail = frameResult.dataUrl;
+          durationStr = frameResult.durationStr;
+        } catch (frameErr) {
+          console.warn("Frame extraction skipped for", file.name, frameErr);
+        }
 
         const videoId = `video_local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
@@ -653,7 +599,7 @@ function MainApp() {
           name: title,
           creator: creator,
           category: category,
-          duration: "0:30",
+          duration: durationStr,
           thumbnail: thumbnail,
           createdAt: new Date().toISOString(),
           blob: file,
@@ -664,14 +610,14 @@ function MainApp() {
         processedCount++;
 
         setVideoScanProgress(Math.round((processedCount / totalVideos) * 100));
-        await new Promise((r) => setTimeout(r, 30));
+        await new Promise((r) => setTimeout(r, 20));
       }
 
       await refreshLocalMedia();
-      setVideoScanSuccess(`Scan Complete! Discovered and synchronized ${processedCount} high-fidelity local videos to your offline library.`);
+      setVideoScanSuccess(`Scan Complete! Successfully added ${processedCount} video${processedCount === 1 ? "" : "s"} to your offline library.`);
     } catch (err: any) {
       console.error("Local video scanner failed:", err);
-      setVideoScanError(err.message || "An error occurred while scanning your device storage.");
+      setVideoScanError(err.message || "An error occurred while scanning your selected video files.");
     } finally {
       setIsScanningVideo(false);
       setVideoCurrentFile(null);
@@ -825,6 +771,13 @@ function MainApp() {
 
       songs = Array.from(songsMap.values());
       vids = Array.from(vidsMap.values());
+
+      // Backfill missing thumbnails in the background asynchronously
+      vids.forEach((v) => {
+        if (!v.thumbnail || !v.thumbnail.startsWith("data:image/")) {
+          getOrGenerateVideoThumbnail(v.id, v.url, v.thumbnail, v.name, true).catch(() => {});
+        }
+      });
 
       setFirestoreTracks(songs);
       setFirestoreVideos(vids);
@@ -1441,6 +1394,17 @@ function MainApp() {
   useEffect(() => {
     if (currentView === "player") {
       setIsMinimizedClosed(false);
+    }
+  }, [currentView]);
+
+  // Pause music playback when navigating to video view so audio streams don't clash or interrupt
+  useEffect(() => {
+    if (currentView === "video" || currentView === "ai_enhancement_video") {
+      if (audioRef.current && !audioRef.current.paused) {
+        audioRef.current.pause();
+      }
+      stopSyntheticOsc();
+      setIsPlaying(false);
     }
   }, [currentView]);
 
@@ -3401,10 +3365,8 @@ function MainApp() {
         id="music-scanner"
         ref={musicScanInputRef}
         type="file"
-        // @ts-ignore
-        webkitdirectory=""
-        directory=""
         multiple
+        accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac"
         className="hidden"
         onChange={handleWebMusicScanChange}
       />
@@ -3412,10 +3374,8 @@ function MainApp() {
         id="video-scanner"
         ref={videoScanInputRef}
         type="file"
-        // @ts-ignore
-        webkitdirectory=""
-        directory=""
         multiple
+        accept="video/*,.mp4,.webm,.avi,.mkv,.mov,.3gp,.m4v"
         className="hidden"
         onChange={handleWebVideoScanChange}
       />
@@ -3464,5 +3424,9 @@ function MainApp() {
 }
 
 export default function App() {
+  const isCastReceiverMode = typeof window !== "undefined" && window.location.search.includes("mode=cast-receiver");
+  if (isCastReceiverMode) {
+    return <CastReceiver />;
+  }
   return <MainApp />;
 }

@@ -224,7 +224,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
   const scanProgress = propScanProgress !== undefined ? propScanProgress : internalScanProgress;
   const currentScanFile = propCurrentScanFile !== undefined ? propCurrentScanFile : internalCurrentScanFile;
 
-  // Web-compatible HTML5 folder / local device storage scanner
+  // Web-compatible HTML5 individual / multi-file local device storage scanner
   const handleSmartScan = async () => {
     if (onTriggerScan) {
       onTriggerScan();
@@ -233,10 +233,14 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
     setUploadError("");
     setUploadSuccess("");
     if (scanInputRef.current) {
+      scanInputRef.current.value = "";
       scanInputRef.current.click();
     } else {
-      const el = document.getElementById("music-scanner");
-      if (el) el.click();
+      const el = document.getElementById("music-scanner") as HTMLInputElement | null;
+      if (el) {
+        el.value = "";
+        el.click();
+      }
     }
   };
 
@@ -260,23 +264,23 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
     setUploadSuccess("");
 
     try {
-      setInternalCurrentScanFile("Initializing local device file structure query...");
-      await new Promise((r) => setTimeout(r, 400));
+      setInternalCurrentScanFile("Reading selected audio files from storage...");
+      await new Promise((r) => setTimeout(r, 250));
 
-      // Automated File Filtering Loop: Accept all local audio extensions (case-insensitive)
+      // Automated File Filtering Loop: Accept all local audio extensions & MIME types
       const allowedExtensions = [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"];
       const filteredFiles = files.filter(file => {
         const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
-        return allowedExtensions.includes(ext);
+        return allowedExtensions.includes(ext) || file.type.startsWith("audio/");
       });
 
       if (filteredFiles.length === 0) {
-        throw new Error("No valid local audio files found matching extensions (.mp3, .wav, .m4a, .aac, .ogg, .flac).");
+        throw new Error("No valid audio files found (.mp3, .wav, .m4a, .aac, .ogg, .flac).");
       }
 
       const totalTracks = filteredFiles.length;
-      setInternalCurrentScanFile(`Discovered ${totalTracks} compatible tracks. Parsing local metadata...`);
-      await new Promise((r) => setTimeout(r, 600));
+      setInternalCurrentScanFile(`Loaded ${totalTracks} audio file${totalTracks === 1 ? "" : "s"}. Scanning tags & audio waveforms...`);
+      await new Promise((r) => setTimeout(r, 350));
 
       let processedCount = 0;
       for (const file of filteredFiles) {
@@ -308,7 +312,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
           genre = "Pop Vocal";
         }
 
-        setInternalCurrentScanFile(`Processing: ${file.name}`);
+        setInternalCurrentScanFile(`Scanning & indexing: ${file.name}`);
 
         let metadata;
         try {
@@ -341,7 +345,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
 
         // Stagger progress animation for tactile feedback
         setInternalScanProgress(Math.round((processedCount / totalTracks) * 100));
-        await new Promise((r) => setTimeout(r, 30));
+        await new Promise((r) => setTimeout(r, 20));
       }
 
       // Sync and populate parent application state instantly
@@ -354,14 +358,15 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
         limitExceeded: false
       });
 
-      setUploadSuccess(`Scan Complete! Discovered and synchronized ${processedCount} high-fidelity local tracks to your offline library.`);
+      setUploadSuccess(`Scan Complete! Successfully added ${processedCount} audio track${processedCount === 1 ? "" : "s"} to your offline library.`);
 
     } catch (err: any) {
       console.error("Local audio scanner failed:", err);
-      setUploadError(err.message || "An error occurred while scanning your device storage.");
+      setUploadError(err.message || "An error occurred while scanning your selected audio files.");
     } finally {
       setInternalIsScanning(false);
       setInternalCurrentScanFile(null);
+      if (e.target) e.target.value = "";
     }
   };
 
@@ -564,10 +569,10 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                 Scan Device for Music
               </span>
               <span className="text-xs text-slate-400 font-light mt-1 leading-relaxed">
-                Automated system-wide MediaStore scanning for storage directories and metadata indexing.
+                Scan and index individual audio tracks or multi-file selections from any storage folder.
               </span>
               <span className="text-[10px] text-slate-300/90 font-medium tracking-wide uppercase mt-2.5 block border-t border-slate-300/10 pt-2.5">
-                Instruction: Select a folder, and the system scans and uploads files automatically.
+                Instruction: Select individual music files or multiple files from your folders to scan and upload.
               </span>
             </div>
           </div>
@@ -579,8 +584,8 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
           >
             {isScanning ? (
               <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                <span>Scanning Device...</span>
+                <div className="w-4 h-4 border-2 border-stone-950 border-t-transparent rounded-full animate-spin" />
+                <span>Scanning Audio...</span>
               </>
             ) : (
               <>
@@ -612,7 +617,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
           <label className="w-full py-3 px-5 rounded-xl bg-gradient-to-r from-stone-850 to-stone-950 hover:from-stone-800 hover:to-stone-900 border border-stone-750 text-white font-sans text-xs font-semibold tracking-widest uppercase cursor-pointer transition-all active:scale-[98.5%] shadow-lg flex items-center justify-center gap-2 mt-2 select-none text-center">
             <input 
               type="file" 
-              accept="audio/*" 
+              accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac" 
               multiple 
               onChange={(e) => {
                 setUploadError("");
@@ -628,14 +633,13 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
 
       </div>
 
-      {/* HTML5 Local Storage Input Element configured exactly as requested */}
+      {/* HTML5 Local Storage Input Element configured for individual or multi-file selection */}
       <input 
         type="file"
         id="music-scanner"
         ref={scanInputRef}
-        accept="audio/*"
+        accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac"
         multiple
-        {...{ webkitdirectory: "", directory: "" }}
         onChange={handleWebFolderScanChange}
         className="hidden"
       />

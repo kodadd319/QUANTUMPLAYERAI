@@ -49,6 +49,23 @@
   <body style="background-color: #0b0202; color: #f8fafc; margin: 0; padding: 0;">
     <div id="root"></div>
 
+    <!-- Google Cast Sender SDK -->
+    <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+    <script>
+      window['__onGCastApiAvailable'] = function(isAvailable) {
+        if (isAvailable && window.cast && window.cast.framework) {
+          try {
+            window.cast.framework.CastContext.getInstance().setOptions({
+              receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
+              autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+            });
+          } catch (e) {
+            console.warn('Google Cast framework setup notice:', e);
+          }
+        }
+      };
+    </script>
+
     <script type="module" src="/src/main.tsx"></script>
     <script>
       if ('serviceWorker' in navigator) {

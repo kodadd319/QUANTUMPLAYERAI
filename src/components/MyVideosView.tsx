@@ -20,48 +20,49 @@ import { motion, AnimatePresence } from "motion/react";
 import { VideoThumbnail } from "./VideoThumbnail";
 import { requestNativeAndroidPermissions } from "../utils/audioScannerService";
 import { storeLocalVideo } from "../utils/localMediaStorage";
+import { extractVideoFrame, getOrGenerateVideoThumbnail } from "../utils/videoThumbnailGenerator";
 
 // 5 premium local video records for screen testing, high-refresh display testing, and bass excursion visual mapping
 const MEDIASTORE_VIDEO_RECORDS = [
   {
-    title: "Neon Night Highway Sweep",
-    creator: "Acoustic Car Club",
+    title: "Sintel Cinematic Trailer",
+    creator: "Blender Animation Studio",
     category: "Cinematic",
-    duration: "0:15",
-    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-    thumbnail: "https://images.unsplash.com/photo-1518173946687-a4c8a383392e?w=500&auto=format&fit=crop&q=80"
+    duration: "0:52",
+    url: "https://media.w3.org/2010/05/sintel/trailer.mp4",
+    thumbnail: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=500&auto=format&fit=crop&q=80"
   },
   {
-    title: "Subwoofer Cone Excursion Pattern",
-    creator: "Decibel Lab Tech",
-    category: "Acoustic Calibration",
-    duration: "0:15",
-    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-    thumbnail: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=500&auto=format&fit=crop&q=80"
-  },
-  {
-    title: "Vaporwave Retro Horizon Drive",
-    creator: "Studio Calibration Unit",
-    category: "Futuristic",
-    duration: "0:15",
-    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
-    thumbnail: "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=500&auto=format&fit=crop&q=80"
-  },
-  {
-    title: "Deep Sea Sub-Bass Thermal Wave",
+    title: "Deep Ocean Wildlife Expedition",
     creator: "Oceanic Hydroacoustics",
     category: "Acoustic Calibration",
-    duration: "0:15",
-    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
+    duration: "0:46",
+    url: "https://vjs.zencdn.net/v/oceans.mp4",
     thumbnail: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&auto=format&fit=crop&q=80"
   },
   {
-    title: "Cybernetic Laser Light Matrix",
-    creator: "RGB Laser Engineers",
+    title: "Big Buck Animation Excursion",
+    creator: "Peach Open Movie Project",
+    category: "Futuristic",
+    duration: "0:33",
+    url: "https://media.w3.org/2010/05/bunny/trailer.mp4",
+    thumbnail: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=500&auto=format&fit=crop&q=80"
+  },
+  {
+    title: "Botanical Color Sweep",
+    creator: "Acoustic Lab Tech",
     category: "Cinematic",
-    duration: "0:15",
-    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4",
-    thumbnail: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80"
+    duration: "0:05",
+    url: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+    thumbnail: "https://images.unsplash.com/photo-1518173946687-a4c8a383392e?w=500&auto=format&fit=crop&q=80"
+  },
+  {
+    title: "Motion Excursion Spectrum",
+    creator: "Studio Calibration Unit",
+    category: "Acoustic Calibration",
+    duration: "0:10",
+    url: "https://www.w3schools.com/html/mov_bbb.mp4",
+    thumbnail: "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=500&auto=format&fit=crop&q=80"
   }
 ];
 
@@ -111,6 +112,7 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
+  const [wasInSelectionMode, setWasInSelectionMode] = useState<boolean>(false);
 
   // Long press timer refs & selection mode triggers
   const longPressTimers = useRef<Record<string, any>>({});
@@ -203,7 +205,7 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
   const scanProgress = propScanProgress !== undefined ? propScanProgress : internalScanProgress;
   const currentScanFile = propCurrentScanFile !== undefined ? propCurrentScanFile : internalCurrentScanFile;
 
-  // Web-compatible HTML5 folder / local device storage scanner for videos
+  // Web-compatible HTML5 individual / multi-file local device storage scanner for videos
   const handleSmartScan = async () => {
     if (onTriggerScan) {
       onTriggerScan();
@@ -212,10 +214,14 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
     setUploadError("");
     setUploadSuccess("");
     if (videoScanInputRef.current) {
+      videoScanInputRef.current.value = "";
       videoScanInputRef.current.click();
     } else {
-      const el = document.getElementById("video-scanner");
-      if (el) el.click();
+      const el = document.getElementById("video-scanner") as HTMLInputElement | null;
+      if (el) {
+        el.value = "";
+        el.click();
+      }
     }
   };
 
@@ -238,23 +244,23 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
     setUploadSuccess("");
 
     try {
-      setInternalCurrentScanFile("Initializing local device video structure query...");
-      await new Promise((r) => setTimeout(r, 400));
+      setInternalCurrentScanFile("Reading selected video files from storage...");
+      await new Promise((r) => setTimeout(r, 250));
 
-      // Automated File Filtering Loop: Accept all local video extensions (case-insensitive)
+      // Automated File Filtering Loop: Accept all local video extensions & MIME types
       const allowedExtensions = [".mp4", ".webm", ".avi", ".mkv", ".mov", ".3gp", ".m4v"];
       const filteredFiles = files.filter(file => {
         const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
-        return allowedExtensions.includes(ext);
+        return allowedExtensions.includes(ext) || file.type.startsWith("video/");
       });
 
       if (filteredFiles.length === 0) {
-        throw new Error("No valid local video files found matching extensions (.mp4, .webm, .avi, .mkv, .mov, .3gp, .m4v).");
+        throw new Error("No valid video files found (.mp4, .webm, .avi, .mkv, .mov, .3gp, .m4v).");
       }
 
       const totalVideos = filteredFiles.length;
-      setInternalCurrentScanFile(`Discovered ${totalVideos} compatible video tracks. Parsing local metadata...`);
-      await new Promise((r) => setTimeout(r, 600));
+      setInternalCurrentScanFile(`Loaded ${totalVideos} video file${totalVideos === 1 ? "" : "s"}. Extracting frames and metadata...`);
+      await new Promise((r) => setTimeout(r, 350));
 
       let processedCount = 0;
       for (const file of filteredFiles) {
@@ -273,20 +279,18 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
           category = parts[0];
         }
 
-        // Random dynamic thumb placeholders from high-quality curated stock images based on name tags or folder
-        let thumbnail = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80";
-        const lowerName = file.name.toLowerCase();
-        if (lowerName.includes("car") || lowerName.includes("drive") || lowerName.includes("speed")) {
-          thumbnail = "https://images.unsplash.com/photo-1518173946687-a4c8a383392e?w=500&auto=format&fit=crop&q=80";
-        } else if (lowerName.includes("bass") || lowerName.includes("audio") || lowerName.includes("sound")) {
-          thumbnail = "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=500&auto=format&fit=crop&q=80";
-        } else if (lowerName.includes("neon") || lowerName.includes("laser") || lowerName.includes("cyber")) {
-          thumbnail = "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=500&auto=format&fit=crop&q=80";
-        } else if (lowerName.includes("ocean") || lowerName.includes("sea") || lowerName.includes("water")) {
-          thumbnail = "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&auto=format&fit=crop&q=80";
-        }
+        setInternalCurrentScanFile(`Extracting frame: ${file.name}`);
 
-        setInternalCurrentScanFile(`Processing: ${file.name}`);
+        let thumbnail = "";
+        let durationStr = "0:30";
+
+        try {
+          const frameResult = await extractVideoFrame(file);
+          thumbnail = frameResult.dataUrl;
+          durationStr = frameResult.durationStr;
+        } catch (frameErr) {
+          console.warn("Could not capture frame during scan for", file.name, frameErr);
+        }
 
         const videoId = `video_local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
@@ -296,7 +300,7 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
           name: title,
           creator: creator,
           category: category,
-          duration: "0:30", // Placeholder. Resolved dynamically on player load
+          duration: durationStr,
           thumbnail: thumbnail,
           createdAt: new Date().toISOString(),
           blob: file, // Store raw file object inside IndexedDB directly!
@@ -309,7 +313,7 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
 
         // Stagger scanning progress meter
         setInternalScanProgress(Math.round((processedCount / totalVideos) * 100));
-        await new Promise((r) => setTimeout(r, 30));
+        await new Promise((r) => setTimeout(r, 20));
       }
 
       // Sync and populate parent application state instantly
@@ -317,14 +321,15 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
         await refreshLocalMedia();
       }
 
-      setUploadSuccess(`Scan Complete! Discovered and synchronized ${processedCount} high-fidelity local videos to your offline library.`);
+      setUploadSuccess(`Scan Complete! Successfully added ${processedCount} video${processedCount === 1 ? "" : "s"} to your offline library.`);
 
     } catch (err: any) {
       console.error("Local video scanner failed:", err);
-      setUploadError(err.message || "An error occurred while scanning your device storage.");
+      setUploadError(err.message || "An error occurred while scanning your selected video files.");
     } finally {
       setInternalIsScanning(false);
       setInternalCurrentScanFile(null);
+      if (e.target) e.target.value = "";
     }
   };
 
@@ -333,11 +338,50 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
     return videos;
   }, [videos]);
 
-  const handleSingleDelete = (videoId: string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    setSelectedVideoIds([videoId]);
+  const handleSingleDelete = (videoId: string, e?: React.MouseEvent | React.TouchEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    setWasInSelectionMode(isSelectionMode);
+    setPendingDeleteIds([videoId]);
     setShowDeleteConfirm(true);
   };
+
+  const handleBatchDelete = () => {
+    if (selectedVideoIds.length === 0) return;
+    setWasInSelectionMode(true);
+    setPendingDeleteIds([...selectedVideoIds]);
+    setShowDeleteConfirm(true);
+  };
+
+  const cancelDelete = () => {
+    setShowDeleteConfirm(false);
+    setPendingDeleteIds([]);
+  };
+
+  const confirmDelete = async () => {
+    const idsToDelete = pendingDeleteIds.length > 0 ? [...pendingDeleteIds] : [...selectedVideoIds];
+    if (idsToDelete.length === 0) {
+      setShowDeleteConfirm(false);
+      return;
+    }
+    setShowDeleteConfirm(false);
+    setPendingDeleteIds([]);
+    setSelectedVideoIds(prev => prev.filter(id => !idsToDelete.includes(id)));
+    if (!wasInSelectionMode || idsToDelete.length >= selectedVideoIds.length) {
+      setIsSelectionMode(false);
+    }
+    await deleteSelectedVideos(idsToDelete);
+  };
+
+  // Find target video object for single video prompt title display
+  const targetVideoToDelete = useMemo(() => {
+    if (pendingDeleteIds.length === 1) {
+      return videos.find(v => v.id === pendingDeleteIds[0]) || null;
+    }
+    return null;
+  }, [pendingDeleteIds, videos]);
 
   // Apply search query filter and sorting dynamically
   const filteredVideos = useMemo(() => {
@@ -417,19 +461,6 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
     }
   };
 
-  const handleBatchDelete = () => {
-    if (selectedVideoIds.length === 0) return;
-    setShowDeleteConfirm(true);
-  };
-
-  const confirmDelete = async () => {
-    const idsToDelete = [...selectedVideoIds];
-    setSelectedVideoIds([]);
-    setIsSelectionMode(false);
-    setShowDeleteConfirm(false);
-    await deleteSelectedVideos(idsToDelete);
-  };
-
   return (
     <motion.div 
       initial={{ opacity: 0 }}
@@ -472,10 +503,10 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
                 Scan Device for Videos
               </span>
               <span className="text-xs text-slate-400 font-light mt-1 leading-relaxed">
-                Automated MediaStore scanning for storage directories and video container metadata indexing.
+                Scan and index individual video files or multi-file selections from any storage folder.
               </span>
               <span className="text-[10px] text-slate-300/90 font-medium tracking-wide uppercase mt-2.5 block border-t border-slate-300/10 pt-2.5">
-                Instruction: Select a folder, and the system scans and uploads files automatically.
+                Instruction: Select individual video files or multiple files from your folders to scan and upload.
               </span>
             </div>
           </div>
@@ -520,7 +551,7 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
           <label className="w-full py-3 px-5 rounded-xl bg-gradient-to-r from-stone-850 to-stone-950 hover:from-stone-800 hover:to-stone-900 border border-stone-750 text-white font-sans text-xs font-semibold tracking-widest uppercase cursor-pointer transition-all active:scale-[98.5%] shadow-lg flex items-center justify-center gap-2 mt-2 select-none text-center">
             <input 
               type="file" 
-              accept="video/*" 
+              accept="video/*,.mp4,.webm,.avi,.mkv,.mov,.3gp,.m4v" 
               multiple 
               onChange={(e) => {
                 setUploadError("");
@@ -775,10 +806,13 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
 
                         {/* Direct Delete button */}
                         <button
+                          type="button"
                           onClick={(e) => handleSingleDelete(vid.id, e)}
                           onMouseDown={(e) => e.stopPropagation()}
+                          onTouchStart={(e) => e.stopPropagation()}
+                          onTouchEnd={(e) => e.stopPropagation()}
                           title="Delete video"
-                          className="absolute top-3 right-3 p-1.5 rounded-lg bg-black/60 hover:bg-red-600/90 backdrop-blur-md border border-white/10 text-slate-300 hover:text-white z-10 transition-all duration-200 cursor-pointer opacity-80 sm:opacity-0 sm:group-hover:opacity-100 shadow-md"
+                          className="absolute top-3 right-3 p-1.5 rounded-lg bg-black/70 hover:bg-red-600 backdrop-blur-md border border-white/15 text-slate-300 hover:text-white z-20 transition-all duration-200 cursor-pointer opacity-90 sm:opacity-0 sm:group-hover:opacity-100 shadow-md active:scale-95"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -857,10 +891,13 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
                                 {isSelectedForDel ? <CheckSquare className="w-4 h-4 text-emerald-400" /> : <Square className="w-4 h-4 text-slate-400" />}
                               </button>
                               <button
+                                type="button"
                                 onClick={(e) => handleSingleDelete(vid.id, e)}
                                 onMouseDown={(e) => e.stopPropagation()}
+                                onTouchStart={(e) => e.stopPropagation()}
+                                onTouchEnd={(e) => e.stopPropagation()}
                                 title="Delete video"
-                                className="absolute top-3 right-3 p-1.5 rounded-lg bg-black/60 hover:bg-red-600/90 backdrop-blur-md border border-white/10 text-slate-300 hover:text-white z-10 transition-all duration-200 cursor-pointer opacity-80 sm:opacity-0 sm:group-hover:opacity-100 shadow-md"
+                                className="absolute top-3 right-3 p-1.5 rounded-lg bg-black/70 hover:bg-red-600 backdrop-blur-md border border-white/15 text-slate-300 hover:text-white z-20 transition-all duration-200 cursor-pointer opacity-90 sm:opacity-0 sm:group-hover:opacity-100 shadow-md active:scale-95"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -933,10 +970,13 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
                                 {isSelectedForDel ? <CheckSquare className="w-4 h-4 text-emerald-400" /> : <Square className="w-4 h-4 text-slate-400" />}
                               </button>
                               <button
+                                type="button"
                                 onClick={(e) => handleSingleDelete(vid.id, e)}
                                 onMouseDown={(e) => e.stopPropagation()}
+                                onTouchStart={(e) => e.stopPropagation()}
+                                onTouchEnd={(e) => e.stopPropagation()}
                                 title="Delete video"
-                                className="absolute top-3 right-3 p-1.5 rounded-lg bg-black/60 hover:bg-red-600/90 backdrop-blur-md border border-white/10 text-slate-300 hover:text-white z-10 transition-all duration-200 cursor-pointer opacity-80 sm:opacity-0 sm:group-hover:opacity-100 shadow-md"
+                                className="absolute top-3 right-3 p-1.5 rounded-lg bg-black/70 hover:bg-red-600 backdrop-blur-md border border-white/15 text-slate-300 hover:text-white z-20 transition-all duration-200 cursor-pointer opacity-90 sm:opacity-0 sm:group-hover:opacity-100 shadow-md active:scale-95"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -960,19 +1000,18 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
         )}
       </div>
 
-      {/* HTML5 Local Storage Input Element configured exactly as requested */}
+      {/* HTML5 Local Storage Input Element configured for individual or multi-file selection */}
       <input 
         type="file"
         id="video-scanner"
         ref={videoScanInputRef}
-        accept="video/*"
+        accept="video/*,.mp4,.webm,.avi,.mkv,.mov,.3gp,.m4v"
         multiple
-        {...{ webkitdirectory: "", directory: "" }}
         onChange={handleWebFolderScanChange}
         className="hidden"
       />
 
-      {/* Custom Sleek Glass Confirmation Dialog */}
+      {/* System Prompt: Delete Video? Yes or No */}
       <AnimatePresence>
         {showDeleteConfirm && (
           <motion.div
@@ -980,11 +1019,13 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4"
+            onClick={cancelDelete}
           >
             <motion.div
               initial={{ scale: 0.95, y: 10 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.95, y: 10 }}
+              onClick={(e) => e.stopPropagation()}
               className="w-full max-w-md bg-[#090b0f] border border-stone-800 rounded-2xl p-6 shadow-2xl text-left"
             >
               <div className="flex items-center gap-3.5 mb-4">
@@ -993,32 +1034,40 @@ export const MyVideosView: React.FC<MyVideosViewProps> = ({
                 </div>
                 <div>
                   <h3 className="text-base font-sans font-bold text-white uppercase tracking-wide">
-                    Confirm Deletion
+                    {pendingDeleteIds.length > 1 ? "Delete Selected Videos?" : "Delete Video?"}
                   </h3>
-                  <p className="text-xs text-slate-400 mt-1 font-light">
-                    This action is irreversible.
+                  <p className="text-xs text-slate-400 mt-0.5 font-light">
+                    System prompt confirmation
                   </p>
                 </div>
               </div>
 
-              <p className="text-xs text-slate-300 font-light leading-relaxed mb-6">
-                Are you sure you want to permanently remove the selected <strong className="text-white font-semibold">{selectedVideoIds.length} video(s)</strong> from your local video locker?
+              <p className="text-sm text-slate-300 font-normal leading-relaxed mb-6">
+                {targetVideoToDelete ? (
+                  <>
+                    Are you sure you want to delete <strong className="text-white font-semibold">"{targetVideoToDelete.name}"</strong>?
+                  </>
+                ) : (
+                  <>
+                    Are you sure you want to delete {pendingDeleteIds.length > 1 ? `the ${pendingDeleteIds.length} selected videos` : "this video"}?
+                  </>
+                )}
               </p>
 
               <div className="flex items-center justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowDeleteConfirm(false)}
-                  className="px-4 py-2.5 rounded-xl border border-stone-800 text-slate-400 hover:text-white hover:bg-white/5 text-xs font-sans font-medium transition-all cursor-pointer"
+                  onClick={cancelDelete}
+                  className="px-5 py-2.5 rounded-xl border border-stone-700 bg-stone-800/80 hover:bg-stone-700 text-stone-200 hover:text-white text-xs font-sans font-semibold transition-all cursor-pointer active:scale-95 min-w-[70px] text-center"
                 >
-                  Cancel
+                  No
                 </button>
                 <button
                   type="button"
                   onClick={confirmDelete}
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white text-xs font-sans font-bold transition-all active:scale-[98.5%] cursor-pointer shadow-lg shadow-red-500/10"
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white text-xs font-sans font-bold transition-all active:scale-95 cursor-pointer shadow-lg shadow-red-500/20 min-w-[70px] text-center"
                 >
-                  Delete Permanently
+                  Yes
                 </button>
               </div>
             </motion.div>

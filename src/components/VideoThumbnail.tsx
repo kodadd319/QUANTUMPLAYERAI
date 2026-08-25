@@ -1,185 +1,106 @@
 import React, { useState, useEffect } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Film } from "lucide-react";
 import { VideoTrack } from "../types";
-import { getVideoBlob } from "../utils/videoStorage";
+import {
+  getOrGenerateVideoThumbnail,
+  videoThumbnailCache,
+  generateSvgVideoPlaceholder
+} from "../utils/videoThumbnailGenerator";
 
 interface VideoThumbnailProps {
   video: VideoTrack;
   className?: string;
 }
 
-// Global cache for video thumbnails to avoid re-generating on every mount/render
-const thumbnailCache: Record<string, string> = {};
-
 export const VideoThumbnail: React.FC<VideoThumbnailProps> = ({ video, className }) => {
+  // Determine initial thumbnail if already in cache or if video.thumbnail is a valid data/image url
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(() => {
-    return thumbnailCache[video.id] || null;
+    if (videoThumbnailCache[video.id]) {
+      return videoThumbnailCache[video.id];
+    }
+    if (video.thumbnail && (video.thumbnail.startsWith("data:image/") || video.thumbnail.startsWith("http://") || video.thumbnail.startsWith("https://"))) {
+      videoThumbnailCache[video.id] = video.thumbnail;
+      return video.thumbnail;
+    }
+    return null;
   });
+
   const [loading, setLoading] = useState<boolean>(!thumbnailUrl);
-  const [error, setError] = useState<boolean>(false);
+  const [hasError, setHasError] = useState<boolean>(false);
 
   useEffect(() => {
-    // If we already have a generated/cached thumbnail, do nothing
-    if (thumbnailUrl) {
+    let isCurrent = true;
+
+    // If already in cache or existing thumbnail is valid, ensure state is set
+    if (videoThumbnailCache[video.id]) {
+      setThumbnailUrl(videoThumbnailCache[video.id]);
       setLoading(false);
       return;
     }
 
-    let isCurrent = true;
-    let objectUrl: string | null = null;
-    let tempVideo: HTMLVideoElement | null = null;
+    if (video.thumbnail && video.thumbnail.startsWith("data:image/")) {
+      videoThumbnailCache[video.id] = video.thumbnail;
+      setThumbnailUrl(video.thumbnail);
+      setLoading(false);
+      return;
+    }
 
-    const generateThumbnail = async () => {
-      try {
-        let srcUrl = video.url;
+    setLoading(true);
+    setHasError(false);
 
-        // Resolve IndexedDB local video url if needed
-        if (srcUrl && srcUrl.startsWith("local-db://")) {
-          const id = srcUrl.replace("local-db://", "");
-          const blob = await getVideoBlob(id);
-          if (blob) {
-            objectUrl = URL.createObjectURL(blob);
-            srcUrl = objectUrl;
-          } else {
-            setError(true);
-            setLoading(false);
-            return;
-          }
-        }
-
-        if (!srcUrl) {
-          throw new Error("No video URL available");
-        }
-
-        // Create a hidden video element
-        tempVideo = document.createElement("video");
-        tempVideo.src = srcUrl;
-        tempVideo.crossOrigin = "anonymous";
-        tempVideo.preload = "metadata";
-        tempVideo.muted = true;
-        tempVideo.playsInline = true;
-        
-        // Move playback forward to capture a non-black frame (at 1 second)
-        tempVideo.currentTime = 1.0;
-
-        const onSeeked = () => {
-          if (!isCurrent) return;
-          try {
-            const canvas = document.createElement("canvas");
-            canvas.width = tempVideo?.videoWidth || 320;
-            canvas.height = tempVideo?.videoHeight || 180;
-            const ctx = canvas.getContext("2d");
-            if (ctx && tempVideo) {
-              ctx.drawImage(tempVideo, 0, 0, canvas.width, canvas.height);
-              const dataUrl = canvas.toDataURL("image/jpeg", 0.75);
-              thumbnailCache[video.id] = dataUrl;
-              if (isCurrent) {
-                setThumbnailUrl(dataUrl);
-                setLoading(false);
-              }
-            } else {
-              throw new Error("Could not get canvas context");
-            }
-          } catch (err) {
-            console.error("Canvas draw error:", err);
-            if (isCurrent) setError(true);
-          } finally {
-            cleanup();
-          }
-        };
-
-        const onError = (e: any) => {
-          console.warn("Video metadata loading failed, falling back to static thumbnail:", e?.message || e?.type || "error");
-          if (isCurrent) {
-            setError(true);
-            setLoading(false);
-          }
-          cleanup();
-        };
-
-        const cleanup = () => {
-          if (tempVideo) {
-            tempVideo.removeEventListener("seeked", onSeeked);
-            tempVideo.removeEventListener("error", onError);
-            tempVideo.pause();
-            tempVideo.removeAttribute("src");
-            tempVideo.load();
-          }
-        };
-
-        tempVideo.addEventListener("seeked", onSeeked);
-        tempVideo.addEventListener("error", onError);
-
-        // Fallback timeout in case the seeked event never fires (e.g., slow stream / codec issue)
-        setTimeout(() => {
-          if (isCurrent && !thumbnailUrl && tempVideo) {
-            if (tempVideo.readyState >= 2) {
-              onSeeked();
-            } else {
-              setError(true);
-              setLoading(false);
-              cleanup();
-            }
-          }
-        }, 3500);
-
-      } catch (err) {
-        console.error("Failed to generate video thumbnail:", err);
-        if (isCurrent) {
-          setError(true);
-          setLoading(false);
-        }
-        if (objectUrl) {
-          URL.revokeObjectURL(objectUrl);
-        }
-      }
-    };
-
-    generateThumbnail();
+    // Extract real thumbnail picture directly from the video file
+    getOrGenerateVideoThumbnail(
+      video.id,
+      video.url,
+      video.thumbnail,
+      video.name,
+      true
+    )
+      .then((url) => {
+        if (!isCurrent) return;
+        setThumbnailUrl(url);
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.warn("Video thumbnail generation notice for", video.name, err?.message || err);
+        if (!isCurrent) return;
+        const fallback = generateSvgVideoPlaceholder(video.name, video.duration);
+        setThumbnailUrl(fallback);
+        setLoading(false);
+      });
 
     return () => {
       isCurrent = false;
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
-      }
-      if (tempVideo) {
-        tempVideo.pause();
-        tempVideo.removeAttribute("src");
-        tempVideo.load();
-      }
     };
-  }, [video, thumbnailUrl]);
+  }, [video.id, video.url, video.thumbnail, video.name, video.duration]);
 
-  // If we have a generated thumbnail and no error, render it
-  if (thumbnailUrl && !error) {
+  // If loading and no image yet, show a clean sleek loader
+  if (loading && !thumbnailUrl) {
     return (
-      <img
-        src={thumbnailUrl}
-        alt={video.name}
-        className={className}
-        referrerPolicy="no-referrer"
-      />
-    );
-  }
-
-  // If loading, show dynamic progress/generation loader
-  if (loading) {
-    return (
-      <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-stone-900 to-black text-slate-500 gap-1.5">
-        <Loader2 className="w-5 h-5 animate-spin text-emerald-400 stroke-[1.5]" />
-        <span className="text-[9px] font-mono tracking-widest uppercase text-slate-400">Generating Frame...</span>
+      <div className="w-full h-full absolute inset-0 flex flex-col items-center justify-center bg-stone-950/90 text-stone-400 gap-1.5 z-0">
+        <Loader2 className="w-4 h-4 animate-spin text-amber-400 stroke-[1.75]" />
+        <span className="text-[9px] font-mono tracking-wider uppercase text-stone-400">Loading Frame...</span>
       </div>
     );
   }
 
-  // Fallback to static thumbnail if error or unsupported CORS/format
-  const fallbackUrl = video.thumbnail || "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80";
+  // Display the video thumbnail image
+  const displaySrc = thumbnailUrl || generateSvgVideoPlaceholder(video.name, video.duration);
+
   return (
     <img
-      src={fallbackUrl}
-      alt={video.name}
+      src={displaySrc}
+      alt={video.name || "Video Thumbnail"}
       className={className}
       referrerPolicy="no-referrer"
+      loading="lazy"
+      onError={(e) => {
+        if (!hasError) {
+          setHasError(true);
+          const fallback = generateSvgVideoPlaceholder(video.name, video.duration);
+          e.currentTarget.src = fallback;
+        }
+      }}
     />
   );
 };

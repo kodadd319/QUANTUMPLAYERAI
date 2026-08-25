@@ -47,7 +47,53 @@ export interface VideoTrack {
   thumbnail: string;
 }
 
-const BUILTIN_VIDEOS: VideoTrack[] = [];
+const BUILTIN_VIDEOS: VideoTrack[] = [
+  {
+    id: "sample-1",
+    name: "Sintel Cinematic Trailer",
+    creator: "Blender Animation Studio",
+    category: "Cinematic",
+    duration: "0:52",
+    url: "https://media.w3.org/2010/05/sintel/trailer.mp4",
+    thumbnail: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=500&auto=format&fit=crop&q=80"
+  },
+  {
+    id: "sample-2",
+    name: "Deep Ocean Wildlife Expedition",
+    creator: "Oceanic Hydroacoustics",
+    category: "Acoustic Calibration",
+    duration: "0:46",
+    url: "https://vjs.zencdn.net/v/oceans.mp4",
+    thumbnail: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&auto=format&fit=crop&q=80"
+  },
+  {
+    id: "sample-3",
+    name: "Big Buck Animation Excursion",
+    creator: "Peach Open Movie Project",
+    category: "Futuristic",
+    duration: "0:33",
+    url: "https://media.w3.org/2010/05/bunny/trailer.mp4",
+    thumbnail: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=500&auto=format&fit=crop&q=80"
+  },
+  {
+    id: "sample-4",
+    name: "Botanical Color Sweep",
+    creator: "Acoustic Lab Tech",
+    category: "Cinematic",
+    duration: "0:05",
+    url: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+    thumbnail: "https://images.unsplash.com/photo-1518173946687-a4c8a383392e?w=500&auto=format&fit=crop&q=80"
+  },
+  {
+    id: "sample-5",
+    name: "Motion Excursion Spectrum",
+    creator: "Studio Calibration Unit",
+    category: "Acoustic Calibration",
+    duration: "0:10",
+    url: "https://www.w3schools.com/html/mov_bbb.mp4",
+    thumbnail: "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=500&auto=format&fit=crop&q=80"
+  }
+];
 
 interface AiVideoEnhancementViewProps {
   subscriptionTier: "free" | "paid";
@@ -604,7 +650,6 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
                 muted={isMuted}
                 autoPlay
                 playsInline
-                crossOrigin="anonymous"
                 onError={() => setIsPlayingPreview(false)}
                 style={enhancedStyles}
                 className="w-full h-full object-cover transition-all"
@@ -1303,7 +1348,6 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
                     muted={true}
                     autoPlay
                     playsInline
-                    crossOrigin="anonymous"
                     onError={() => setIsPlayingPreview(false)}
                     style={enhancedStyles}
                     className="w-full h-full object-cover transition-all"
@@ -1501,6 +1545,27 @@ export const AiVideoEnhancementView: React.FC<AiVideoEnhancementViewProps> = ({
         videoUrl={selectedVideo?.url || resolvedVideoUrl}
         connectedDevice={connectedCastDevice}
         onSelectDevice={(device) => setConnectedCastDevice(device)}
+        isPlaying={isPlayingPreview}
+        isMuted={isMuted}
+        volume={isMuted ? 0 : 0.85}
+        onPlayPause={() => {
+          const targetVid = videoPreviewRef.current || topVideoRef.current;
+          if (targetVid) {
+            if (targetVid.paused) {
+              targetVid.play().catch(() => {});
+              setIsPlayingPreview(true);
+            } else {
+              targetVid.pause();
+              setIsPlayingPreview(false);
+            }
+          }
+        }}
+        onToggleMute={() => {
+          const nextMute = !isMuted;
+          setIsMuted(nextMute);
+          if (topVideoRef.current) topVideoRef.current.muted = nextMute;
+          if (videoPreviewRef.current) videoPreviewRef.current.muted = nextMute;
+        }}
       />
 
       {/* Total Quantum Console Overlay */}

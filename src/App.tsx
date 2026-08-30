@@ -1095,8 +1095,7 @@ function MainApp() {
   useEffect(() => {     
     if (!authLoading) {
       if (!isLoggedIn) {       
-        const protectedViews = ["player", "mymusic", "myvideos", "upgrade", "ai_enhancement", "ai_enhancement_audio", "ai_enhancement_video", "video"];
-        if (protectedViews.includes(currentView)) {
+        if (currentView !== "auth" && currentView !== "privacy" && currentView !== "agreement") {
           setCurrentView("auth");
         }
       } else {
@@ -3029,135 +3028,160 @@ function MainApp() {
             </p>
           </div>
         </div>
-      ) : (!isLoggedIn && (currentView === "auth" || (currentView !== "landing" && currentView !== "privacy" && currentView !== "agreement"))) ? (
-        <AuthView auth={auth} onSuccess={() => { setIsLoggedIn(true); setCurrentView("player"); }} onBack={() => { setCurrentView("landing"); }} />
+      ) : !isLoggedIn ? (
+        <>
+          {currentView === "privacy" ? (         
+            <div className="flex-1 w-full max-w-xl mx-auto px-4 py-8 flex flex-col min-h-screen justify-between relative">                      
+              <div className="my-auto max-w-md mx-auto w-full flex flex-col gap-5 py-6">             
+                <div className="flex items-center gap-3 border-b border-slate-850 pb-3">               
+                  <div className="p-2 rounded-xl bg-blue-600/20 text-blue-400 border border-blue-500/30">                 
+                    <Info className="w-4.5 h-4.5" />               
+                  </div>               
+                  <div>                 
+                    <h1 className="text-sm font-semibold font-sans tracking-widest text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.5)] uppercase">                   
+                      Privacy Policy                 
+                    </h1>                 
+                    <p className="text-[8px] font-sans text-slate-500 uppercase tracking-wider mt-0.5">Placeholder Host: https://quantumplayerai.com/privacy-policy</p>               
+                  </div>             
+                </div>             
+                <div className="text-xs font-sans text-slate-300/90 leading-relaxed bg-slate-950/75 border border-slate-900 rounded-2xl p-5 shadow-2xl flex flex-col gap-4 overflow-y-auto max-h-[350px] font-light">               
+                  <p className="font-semibold text-white text-xs border-b border-slate-800 pb-1">1. SECURE LOCAL AUDIO DATA HANDSHAKES</p>               
+                  <p>QUANTUMPLAYERAI respects your personal audio content. All loaded MP3, WAV or track collections are handled entirely client-side using the local browser Web Audio API environment or cached securely using high-speed IndexedDB and LocalStorage wrappers.</p>               
+                  <p>We do not transfer, harvest, or index your original music audio byte data to any unauthorized external databases.</p>               
+                  <p className="font-semibold text-white text-xs border-b border-slate-800 pb-1">2. ANONYMOUS HANDSHAKE TRACKING</p>               
+                  <p>When synced to Cloud Storage catalog, persistent metadata pointers (such as track filename, length, upload timestamps) are saved in a sandboxed, anonymous Firestore directory matching your temporary profile credential key.</p>               
+                  <p>This ensures that your playlist catalog stays fully synchronized without requiring any confidential tracking telemetry.</p>               
+                  <p className="font-semibold text-white text-xs border-b border-slate-800 pb-1">3. THIRD-PARTY DISCLOSURES & INTEGRATION</p>               
+                  <p>Our services do not deploy any hidden analytical cookies, tracker pixels, or secondary telemetry systems. The workspace runs inside an isolated container with zero secondary data harvesting policies.</p>             
+                </div>             
+                <button               
+                  onClick={() => setCurrentView("auth")}               
+                  className="mt-4 px-6 py-2.5 rounded-xl font-sans text-[10px] font-semibold tracking-widest text-center uppercase cursor-pointer select-none bg-slate-900 border border-slate-800 hover:border-slate-500 text-slate-300 hover:text-white transition-all transform hover:scale-102 active:scale-95 animate-none"             
+                >                 
+                  Return to Log In             
+                </button>           
+              </div>           
+              <footer className="w-full text-center mt-auto pt-6 text-[9px] font-sans text-slate-500 uppercase tracking-widest">             
+                Placeholder Host Domain: https://quantumplayerai.com           
+              </footer>         
+            </div>       
+          ) : currentView === "agreement" ? (         
+            <div className="flex-1 w-full max-w-xl mx-auto px-4 py-8 flex flex-col min-h-screen justify-between relative">                      
+              <div className="my-auto max-w-md mx-auto w-full flex flex-col gap-5 py-6">             
+                <div className="flex items-center gap-3 border-b border-slate-850 pb-3">               
+                  <div className="p-2 rounded-xl bg-orange-650/15 text-orange-400 border border-orange-500/30">                 
+                    <AlertTriangle className="w-4.5 h-4.5" />               
+                  </div>               
+                  <div>                 
+                    <h1 className="text-sm font-semibold font-sans tracking-widest text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.5)] uppercase">                   
+                      User Agreements                 
+                    </h1>                 
+                    <p className="text-[8px] font-sans text-slate-500 uppercase tracking-wider mt-0.5">Placeholder Host: https://quantumplayerai.com/user-agreement</p>               
+                  </div>             
+                </div>             
+                <div className="text-xs font-sans text-slate-300/90 leading-relaxed bg-[#020512]/90 border border-slate-800/80 rounded-2xl p-5 shadow-2xl flex flex-col gap-4 overflow-y-auto max-h-[350px] font-light">               
+                  <p className="font-semibold text-white text-xs border-b border-slate-800 pb-1">1. INTENT OF APP USE</p>               
+                  <p>By booting the QUANTUMPLAYERAI digital sound processing (DSP) environment, you acquire a non-transferable runtime access license to optimize local and synchronized audio files inside your container.</p>               
+                  <p className="font-semibold text-red-400 text-xs border-b border-slate-850 pb-1">2. SUBWOOFER CLIPPING & COMP BASS WARNING</p>               
+                  <p className="text-red-350">QUANTUMPLAYERAI CONTAINS HIGH-GAIN ANALOG-EMULATED BASS BOOST GAIN CONTROLS & AN ATOMIC MAX BASS SHOCKWAVE SWITCH capable of severe SPL output swings. BY AGREEMENT, USER TAKES FULL RESPONSIBILITY FOR SOUND INTENSITY AND SPEAKER RIG HARDWARE DAMAGE FROM OVER-EXCURSION OR CLIPPING.</p>               
+                  <p className="font-semibold text-white text-xs border-b border-slate-800 pb-1">3. CLOUD DEPLOYMENTS & DOMAIN HANDSHAKES</p>               
+                  <p>All domain handshakes, local port mappings, and external proxies configured on custom server points are operated under strict local sandbox policies. QUANTUMPLAYERAI delivers services "as-is" without secondary liabilities.</p>             
+                </div>             
+                <button               
+                  onClick={() => setCurrentView("auth")}               
+                  className="mt-4 px-6 py-2.5 rounded-xl font-sans text-[10px] font-semibold tracking-widest text-center uppercase cursor-pointer select-none bg-slate-900 border border-slate-800 hover:border-slate-500 text-slate-300 hover:text-white transition-all transform hover:scale-102 active:scale-95 animate-none"             
+                >                 
+                  Return to Log In             
+                </button>           
+              </div>           
+              <footer className="w-full text-center mt-auto pt-6 text-[9px] font-sans text-slate-500 uppercase tracking-widest">             
+                Placeholder Host Domain: https://quantumplayerai.com           
+              </footer>         
+            </div>       
+          ) : (
+            <AuthView 
+              auth={auth} 
+              onSuccess={() => { 
+                setIsLoggedIn(true); 
+                setCurrentView("player"); 
+              }} 
+              onNavigateToPrivacy={() => setCurrentView("privacy")}
+              onNavigateToAgreement={() => setCurrentView("agreement")}
+            />
+          )}
+        </>
       ) : (
         <>
-          {currentView === "landing" && (         
-        <div className="flex-1 w-full max-w-xl mx-auto px-4 py-8 flex flex-col justify-between items-center relative min-h-screen">                      
-          <div className="my-auto flex flex-col items-center justify-center text-center w-full max-w-md py-6">                          
-            <div className="relative w-full max-w-[320px] mx-auto mb-8 overflow-hidden group rounded-3xl">               
-              <img 
-                src="/logo.png" 
-                alt="QUANTUMPLAYERAI Logo" 
-                referrerPolicy="no-referrer"
-                onError={(e) => { e.currentTarget.src = "/icon.png"; }}
-                className="w-full h-auto aspect-square rounded-3xl object-cover transition-transform duration-500 group-hover:scale-105 shadow-[0_15px_40px_rgba(0,0,0,0.8)]"
-              />
-            </div>             
-            <h1 className="text-base md:text-lg font-semibold font-sans tracking-wide text-transparent bg-clip-text bg-gradient-to-b from-white via-slate-200 to-slate-400 uppercase leading-snug drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] px-2 text-center">               
-              Ai Powered Video and Music Player             
-            </h1>             
-            <p className="mt-6 text-[12px] font-sans font-light text-slate-300 leading-relaxed bg-slate-950/65 p-6 rounded-2xl border border-slate-900 shadow-xl text-center tracking-wide max-w-md">
-              Experience your music and videos like never before. Powered by advanced Gemini AI, QuantumPlayerAI instantly remasters your uploads, delivering ultra-crisp video upscaling and studio-grade audio optimization in real time. Take total control of your soundstage with a precision 5-band equalizer and tailored audio profiles optimized specifically for car audio, headphones, home audio, and immersive surround sound environments. Upload your files and let Gemini power your playback today.
-            </p>             
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mt-8">
-              <button               
-                onClick={() => {                 
-                  if (currentUser) setCurrentView("player");                 
-                  else setCurrentView("auth");               
-                }}               
-                className="px-6 py-3 rounded-xl font-sans text-xs font-semibold tracking-widest uppercase cursor-pointer select-none bg-gradient-to-r from-slate-200/20 via-white/10 to-slate-400/25 border-2 border-slate-450 text-white shadow-[0_0_20px_rgba(255,255,255,0.15)] hover:from-white hover:via-slate-100 hover:to-slate-300 hover:text-stone-950 hover:border-white hover:shadow-[0_0_30px_rgba(255,255,255,0.45)] active:scale-95 duration-100 transition-all flex items-center gap-2"             
-              >               
-                {currentUser ? "Enter App" : "Log In"}             
-              </button>
-
-              {currentUser && (
+          {currentView === "privacy" && (         
+            <div className="flex-1 w-full max-w-xl mx-auto px-4 py-8 flex flex-col min-h-screen justify-between relative">                      
+              <div className="my-auto max-w-md mx-auto w-full flex flex-col gap-5 py-6">             
+                <div className="flex items-center gap-3 border-b border-slate-850 pb-3">               
+                  <div className="p-2 rounded-xl bg-blue-600/20 text-blue-400 border border-blue-500/30">                 
+                    <Info className="w-4.5 h-4.5" />               
+                  </div>               
+                  <div>                 
+                    <h1 className="text-sm font-semibold font-sans tracking-widest text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.5)] uppercase">                   
+                      Privacy Policy                 
+                    </h1>                 
+                    <p className="text-[8px] font-sans text-slate-500 uppercase tracking-wider mt-0.5">Placeholder Host: https://quantumplayerai.com/privacy-policy</p>               
+                  </div>             
+                </div>             
+                <div className="text-xs font-sans text-slate-300/90 leading-relaxed bg-slate-950/75 border border-slate-900 rounded-2xl p-5 shadow-2xl flex flex-col gap-4 overflow-y-auto max-h-[350px] font-light">               
+                  <p className="font-semibold text-white text-xs border-b border-slate-800 pb-1">1. SECURE LOCAL AUDIO DATA HANDSHAKES</p>               
+                  <p>QUANTUMPLAYERAI respects your personal audio content. All loaded MP3, WAV or track collections are handled entirely client-side using the local browser Web Audio API environment or cached securely using high-speed IndexedDB and LocalStorage wrappers.</p>               
+                  <p>We do not transfer, harvest, or index your original music audio byte data to any unauthorized external databases.</p>               
+                  <p className="font-semibold text-white text-xs border-b border-slate-800 pb-1">2. ANONYMOUS HANDSHAKE TRACKING</p>               
+                  <p>When synced to Cloud Storage catalog, persistent metadata pointers (such as track filename, length, upload timestamps) are saved in a sandboxed, anonymous Firestore directory matching your temporary profile credential key.</p>               
+                  <p>This ensures that your playlist catalog stays fully synchronized without requiring any confidential tracking telemetry.</p>               
+                  <p className="font-semibold text-white text-xs border-b border-slate-800 pb-1">3. THIRD-PARTY DISCLOSURES & INTEGRATION</p>               
+                  <p>Our services do not deploy any hidden analytical cookies, tracker pixels, or secondary telemetry systems. The workspace runs inside an isolated container with zero secondary data harvesting policies.</p>             
+                </div>             
                 <button               
-                  onClick={handleLogout}               
-                  className="px-6 py-3 rounded-xl font-sans text-xs font-semibold tracking-widest uppercase cursor-pointer select-none bg-red-950/20 border-2 border-red-500/30 text-red-400 hover:bg-red-500/25 hover:text-white hover:border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.15)] active:scale-95 duration-100 transition-all flex items-center gap-1.5"             
-                >               
-                  <LogOut className="w-3.5 h-3.5" />
-                  Log Out
-                </button>
-              )}
-            </div>           
-          </div>
-
-          <footer className="w-full text-center mt-auto pt-6 border-t border-slate-900/60 flex flex-col sm:flex-row items-center justify-center gap-3 text-[10px] font-sans text-slate-400 uppercase tracking-widest pb-2">             
-            <span className="opacity-60 text-[9px] tracking-wider">  2026 Studio Player</span>             
-            <span className="hidden sm:inline text-slate-800">|</span>             
-            <div className="flex gap-4">               
-              <button onClick={() => setCurrentView("privacy")} className="hover:text-white drop-shadow-[0_0_4px_rgba(255,255,255,0.5)] transition-colors cursor-pointer underline decoration-dotted underline-offset-4">                 
-                Privacy Policy               
-              </button>               
-              <button onClick={() => setCurrentView("agreement")} className="hover:text-white drop-shadow-[0_0_4px_rgba(255,255,255,0.5)] transition-colors cursor-pointer underline decoration-dotted underline-offset-4">                 
-                User Agreements               
-              </button>             
-            </div>           
-          </footer>         
-        </div>       
-      )}       
-      {currentView === "privacy" && (         
-        <div className="flex-1 w-full max-w-xl mx-auto px-4 py-8 flex flex-col min-h-screen justify-between relative">                      
-          <div className="my-auto max-w-md mx-auto w-full flex flex-col gap-5 py-6">             
-            <div className="flex items-center gap-3 border-b border-slate-850 pb-3">               
-              <div className="p-2 rounded-xl bg-blue-600/20 text-blue-400 border border-blue-500/30">                 
-                <Info className="w-4.5 h-4.5" />               
-              </div>               
-              <div>                 
-                <h1 className="text-sm font-semibold font-sans tracking-widest text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.5)] uppercase">                   
-                  Privacy Policy                 
-                </h1>                 
-                <p className="text-[8px] font-sans text-slate-500 uppercase tracking-wider mt-0.5">Placeholder Host: https://quantumplayerai.com/privacy-policy</p>               
-              </div>             
-            </div>             
-            <div className="text-xs font-sans text-slate-300/90 leading-relaxed bg-slate-950/75 border border-slate-900 rounded-2xl p-5 shadow-2xl flex flex-col gap-4 overflow-y-auto max-h-[350px] font-light">               
-              <p className="font-semibold text-white text-xs border-b border-slate-800 pb-1">1. SECURE LOCAL AUDIO DATA HANDSHAKES</p>               
-              <p>QUANTUMPLAYERAI respects your personal audio content. All loaded MP3, WAV or track collections are handled entirely client-side using the local browser Web Audio API environment or cached securely using high-speed IndexedDB and LocalStorage wrappers.</p>               
-              <p>We do not transfer, harvest, or index your original music audio byte data to any unauthorized external databases.</p>               
-              <p className="font-semibold text-white text-xs border-b border-slate-800 pb-1">2. ANONYMOUS HANDSHAKE TRACKING</p>               
-              <p>When synced to Cloud Storage catalog, persistent metadata pointers (such as track filename, length, upload timestamps) are saved in a sandboxed, anonymous Firestore directory matching your temporary profile credential key.</p>               
-              <p>This ensures that your playlist catalog stays fully synchronized without requiring any confidential tracking telemetry.</p>               
-              <p className="font-semibold text-white text-xs border-b border-slate-800 pb-1">3. THIRD-PARTY DISCLOSURES & INTEGRATION</p>               
-              <p>Our services do not deploy any hidden analytical cookies, tracker pixels, or secondary telemetry systems. The workspace runs inside an isolated container with zero secondary data harvesting policies.</p>             
-            </div>             
-            <button               
-              onClick={() => setCurrentView("landing")}               
-              className="mt-4 px-6 py-2.5 rounded-xl font-sans text-[10px] font-semibold tracking-widest text-center uppercase cursor-pointer select-none bg-slate-900 border border-slate-800 hover:border-slate-500 text-slate-300 hover:text-white transition-all transform hover:scale-102 active:scale-95 animate-none"             
-            >                 
-              Return to Home View             
-            </button>           
-          </div>           
-          <footer className="w-full text-center mt-auto pt-6 text-[9px] font-sans text-slate-500 uppercase tracking-widest">             
-            Placeholder Host Domain: https://quantumplayerai.com           
-          </footer>         
-        </div>       
-      )}       
-      {currentView === "agreement" && (         
-        <div className="flex-1 w-full max-w-xl mx-auto px-4 py-8 flex flex-col min-h-screen justify-between relative">                      
-          <div className="my-auto max-w-md mx-auto w-full flex flex-col gap-5 py-6">             
-            <div className="flex items-center gap-3 border-b border-slate-850 pb-3">               
-              <div className="p-2 rounded-xl bg-orange-650/15 text-orange-400 border border-orange-500/30">                 
-                <AlertTriangle className="w-4.5 h-4.5" />               
-              </div>               
-              <div>                 
-                <h1 className="text-sm font-semibold font-sans tracking-widest text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.5)] uppercase">                   
-                  User Agreements                 
-                </h1>                 
-                <p className="text-[8px] font-sans text-slate-500 uppercase tracking-wider mt-0.5">Placeholder Host: https://quantumplayerai.com/user-agreement</p>               
-              </div>             
-            </div>             
-            <div className="text-xs font-sans text-slate-300/90 leading-relaxed bg-[#020512]/90 border border-slate-800/80 rounded-2xl p-5 shadow-2xl flex flex-col gap-4 overflow-y-auto max-h-[350px] font-light">               
-              <p className="font-semibold text-white text-xs border-b border-slate-800 pb-1">1. INTENT OF APP USE</p>               
-              <p>By booting the QUANTUMPLAYERAI digital sound processing (DSP) environment, you acquire a non-transferable runtime access license to optimize local and synchronized audio files inside your container.</p>               
-              <p className="font-semibold text-red-400 text-xs border-b border-slate-850 pb-1">2. SUBWOOFER CLIPPING & COMP BASS WARNING</p>               
-              <p className="text-red-350">QUANTUMPLAYERAI CONTAINS HIGH-GAIN ANALOG-EMULATED BASS BOOST GAIN CONTROLS & AN ATOMIC MAX BASS SHOCKWAVE SWITCH capable of severe SPL output swings. BY AGREEMENT, USER TAKES FULL RESPONSIBILITY FOR SOUND INTENSITY AND SPEAKER RIG HARDWARE DAMAGE FROM OVER-EXCURSION OR CLIPPING.</p>               
-              <p className="font-semibold text-white text-xs border-b border-slate-800 pb-1">3. CLOUD DEPLOYMENTS & DOMAIN HANDSHAKES</p>               
-              <p>All domain handshakes, local port mappings, and external proxies configured on custom server points are operated under strict local sandbox policies. QUANTUMPLAYERAI delivers services "as-is" without secondary liabilities.</p>             
-            </div>             
-            <button               
-              onClick={() => setCurrentView("landing")}               
-              className="mt-4 px-6 py-2.5 rounded-xl font-sans text-[10px] font-semibold tracking-widest text-center uppercase cursor-pointer select-none bg-slate-900 border border-slate-800 hover:border-slate-500 text-slate-300 hover:text-white transition-all transform hover:scale-102 active:scale-95 animate-none"             
-            >                 
-              Return to Home View             
-            </button>           
-          </div>           
-          <footer className="w-full text-center mt-auto pt-6 text-[9px] font-sans text-slate-500 uppercase tracking-widest">             
-            Placeholder Host Domain: https://quantumplayerai.com           
-          </footer>         
-        </div>       
-      )}       
+                  onClick={handleGoBack}               
+                  className="mt-4 px-6 py-2.5 rounded-xl font-sans text-[10px] font-semibold tracking-widest text-center uppercase cursor-pointer select-none bg-slate-900 border border-slate-800 hover:border-slate-500 text-slate-300 hover:text-white transition-all transform hover:scale-102 active:scale-95 animate-none"             
+                >                 
+                  Return to Player             
+                </button>           
+              </div>           
+              <footer className="w-full text-center mt-auto pt-6 text-[9px] font-sans text-slate-500 uppercase tracking-widest">             
+                Placeholder Host Domain: https://quantumplayerai.com           
+              </footer>         
+            </div>       
+          )}       
+          {currentView === "agreement" && (         
+            <div className="flex-1 w-full max-w-xl mx-auto px-4 py-8 flex flex-col min-h-screen justify-between relative">                      
+              <div className="my-auto max-w-md mx-auto w-full flex flex-col gap-5 py-6">             
+                <div className="flex items-center gap-3 border-b border-slate-850 pb-3">               
+                  <div className="p-2 rounded-xl bg-orange-650/15 text-orange-400 border border-orange-500/30">                 
+                    <AlertTriangle className="w-4.5 h-4.5" />               
+                  </div>               
+                  <div>                 
+                    <h1 className="text-sm font-semibold font-sans tracking-widest text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.5)] uppercase">                   
+                      User Agreements                 
+                    </h1>                 
+                    <p className="text-[8px] font-sans text-slate-500 uppercase tracking-wider mt-0.5">Placeholder Host: https://quantumplayerai.com/user-agreement</p>               
+                  </div>             
+                </div>             
+                <div className="text-xs font-sans text-slate-300/90 leading-relaxed bg-[#020512]/90 border border-slate-800/80 rounded-2xl p-5 shadow-2xl flex flex-col gap-4 overflow-y-auto max-h-[350px] font-light">               
+                  <p className="font-semibold text-white text-xs border-b border-slate-800 pb-1">1. INTENT OF APP USE</p>               
+                  <p>By booting the QUANTUMPLAYERAI digital sound processing (DSP) environment, you acquire a non-transferable runtime access license to optimize local and synchronized audio files inside your container.</p>               
+                  <p className="font-semibold text-red-400 text-xs border-b border-slate-850 pb-1">2. SUBWOOFER CLIPPING & COMP BASS WARNING</p>               
+                  <p className="text-red-350">QUANTUMPLAYERAI CONTAINS HIGH-GAIN ANALOG-EMULATED BASS BOOST GAIN CONTROLS & AN ATOMIC MAX BASS SHOCKWAVE SWITCH capable of severe SPL output swings. BY AGREEMENT, USER TAKES FULL RESPONSIBILITY FOR SOUND INTENSITY AND SPEAKER RIG HARDWARE DAMAGE FROM OVER-EXCURSION OR CLIPPING.</p>               
+                  <p className="font-semibold text-white text-xs border-b border-slate-800 pb-1">3. CLOUD DEPLOYMENTS & DOMAIN HANDSHAKES</p>               
+                  <p>All domain handshakes, local port mappings, and external proxies configured on custom server points are operated under strict local sandbox policies. QUANTUMPLAYERAI delivers services "as-is" without secondary liabilities.</p>             
+                </div>             
+                <button               
+                  onClick={handleGoBack}               
+                  className="mt-4 px-6 py-2.5 rounded-xl font-sans text-[10px] font-semibold tracking-widest text-center uppercase cursor-pointer select-none bg-slate-900 border border-slate-800 hover:border-slate-500 text-slate-300 hover:text-white transition-all transform hover:scale-102 active:scale-95 animate-none"             
+                >                 
+                  Return to Player             
+                </button>           
+              </div>           
+              <footer className="w-full text-center mt-auto pt-6 text-[9px] font-sans text-slate-500 uppercase tracking-widest">             
+                Placeholder Host Domain: https://quantumplayerai.com           
+              </footer>         
+            </div>       
+          )}       
           {(currentView === "player" || currentView === "mymusic" || currentView === "myvideos" || currentView === "upgrade" || currentView === "ai_enhancement" || currentView === "ai_enhancement_audio" || currentView === "ai_enhancement_video" || currentView === "video") && (         
         <>           
           <main id="main-workbench" className="flex-1 w-full mx-auto px-4 py-6 flex flex-col gap-6 items-stretch max-w-xl">                          

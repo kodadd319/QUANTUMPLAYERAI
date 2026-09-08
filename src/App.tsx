@@ -261,7 +261,7 @@ const BUILTIN_PRESETS: Preset[] = [
 ]; 
 
 function MainApp() {   
-  const [currentView, setCurrentView] = useState<"landing" | "auth" | "player" | "mymusic" | "myvideos" | "privacy" | "agreement" | "upgrade" | "ai_enhancement" | "ai_enhancement_audio" | "ai_enhancement_video" | "video">("landing");   
+  const [currentView, setCurrentView] = useState<"auth" | "player" | "mymusic" | "myvideos" | "privacy" | "agreement" | "upgrade" | "ai_enhancement" | "ai_enhancement_audio" | "ai_enhancement_video" | "video">("auth");   
   const [viewHistory, setViewHistory] = useState<string[]>([]);
   const isGoingBackRef = useRef<boolean>(false);
 
@@ -365,7 +365,7 @@ function MainApp() {
   // Permanently unlock all premium features and entitlements for administrator account (jtothek319@gmail.com / jkoehler319@gmail.com)
   const effectiveSubscriptionTier: "free" | "paid" = (isAdminUserEmail(currentUser?.email) || subscriptionTier === "paid") ? "paid" : "free";
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
-  const [authLoading, setAuthLoading] = useState<boolean>(true);   
+  const [authLoading, setAuthLoading] = useState<boolean>(false);   
   const [firestoreTracks, setFirestoreTracks] = useState<Track[]>([]);   
   const [firestoreVideos, setFirestoreVideos] = useState<any[]>([]);   
   const [isUploading, setIsUploading] = useState<boolean>(false);   
@@ -854,8 +854,14 @@ function MainApp() {
   }, []);
 
   useEffect(() => {     
-    setAuthLoading(true);     
+    // Safety fallback timer so loading never hangs
+    const safetyTimer = setTimeout(() => {
+      setAuthLoading(false);
+    }, 700);
+
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {       
+      clearTimeout(safetyTimer);
+      setAuthLoading(false);
       if (user) {         
         console.log("Firebase Authenticated Session Established:", user.uid);         
         setCurrentUser(user);         
@@ -1089,7 +1095,10 @@ function MainApp() {
         refreshLocalMedia(null);
       }     
     });     
-    return () => unsubscribeAuth();   
+    return () => {
+      clearTimeout(safetyTimer);
+      unsubscribeAuth();
+    };   
   }, []);
 
   useEffect(() => {     
@@ -3026,6 +3035,13 @@ function MainApp() {
             <p className="text-[10px] font-sans text-slate-400 uppercase mt-1 leading-relaxed tracking-wider font-light">
               Establishing digital handshake...
             </p>
+            <button
+              type="button"
+              onClick={() => setAuthLoading(false)}
+              className="mt-4 px-4 py-1.5 text-[10px] uppercase font-sans text-slate-400 hover:text-white border border-slate-800 rounded-lg cursor-pointer transition-colors"
+            >
+              Continue
+            </button>
           </div>
         </div>
       ) : !isLoggedIn ? (

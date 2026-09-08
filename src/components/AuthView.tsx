@@ -169,28 +169,23 @@ export const AuthView: React.FC<AuthViewProps> = ({
   return (
     <div className="flex-1 w-full max-w-xl mx-auto px-4 py-8 flex flex-col justify-between items-center min-h-screen relative">
       
-      <div className="my-auto flex flex-col items-center justify-center text-center w-full max-w-md py-6">
+      <div className="my-auto flex flex-col items-center justify-center text-center w-full max-w-md py-4">
         
-        {/* App Logo & Title */}
-        <div className="relative w-24 h-24 mx-auto mb-5 overflow-hidden rounded-2xl shadow-xl">
+        {/* Big App Logo - exactly like before */}
+        <div className="relative w-full max-w-[260px] sm:max-w-[300px] mx-auto mb-6 overflow-hidden group rounded-3xl">
           <img 
             src="/logo.png" 
             alt="QUANTUMPLAYERAI Logo" 
             referrerPolicy="no-referrer"
             onError={(e) => { e.currentTarget.src = "/icon.png"; }}
-            className="w-full h-full object-cover"
+            className="w-full h-auto aspect-square rounded-3xl object-cover transition-transform duration-500 group-hover:scale-105 shadow-[0_15px_40px_rgba(0,0,0,0.8)]"
           />
         </div>
 
-        <h1 className="text-base md:text-lg font-semibold font-sans tracking-wide text-transparent bg-clip-text bg-gradient-to-b from-white via-slate-200 to-slate-400 uppercase leading-snug drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] px-2 text-center">
-          {isSignUp ? "Create Account" : "Log In"}
+        {/* Title */}
+        <h1 className="text-base md:text-lg font-semibold font-sans tracking-wide text-transparent bg-clip-text bg-gradient-to-b from-white via-slate-200 to-slate-400 uppercase leading-snug drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] px-2 text-center mb-6">
+          {isSignUp ? "Create Account" : "Ai Powered Video and Music Player"}
         </h1>
-        
-        <p className="text-[11px] font-sans font-light text-slate-400 mt-1 mb-6 max-w-xs">
-          {isSignUp 
-            ? "Create your account to access your music and video player" 
-            : "Sign in to access your personal soundstage and playlists"}
-        </p>
 
         {/* Error Notification */}
         {error && (
@@ -204,7 +199,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
           </motion.div>
         )}
 
-        {/* Form */}
+        {/* Login Form */}
         <form onSubmit={handleAuthSubmit} className="w-full space-y-3.5">
           
           <div className="flex flex-col gap-1 text-left">
@@ -293,7 +288,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
           {/* Google Sign In Divider */}
           <div className="relative flex items-center justify-center my-4">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-slate-850" />
+              <div className="w-full border-t border-slate-800" />
             </div>
             <div className="relative px-3 bg-stone-950 text-[10px] font-sans text-slate-500 uppercase tracking-wider">
               Or

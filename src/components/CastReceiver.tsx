@@ -32,8 +32,12 @@ export const CastReceiver: React.FC = () => {
   const controlsTimeoutRef = useRef<any>(null);
   const receiverNameRef = useRef<string>("Smart TV Receiver (" + (window.navigator.platform || "Display") + ")");
 
-  // Initialize stored state if available
+  // Initialize stored state or query parameters if available
   useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const queryUrl = searchParams.get("videoUrl");
+    const queryName = searchParams.get("name");
+
     const initial = castSyncManager.getStoredMediaState();
     if (initial) {
       setMediaState(initial);
@@ -43,6 +47,19 @@ export const CastReceiver: React.FC = () => {
       setIsPlaying(initial.isPlaying || false);
       setVolume(initial.volume !== undefined ? initial.volume : 1);
       setIsMuted(initial.isMuted || false);
+    } else if (queryUrl) {
+      setMediaState({
+        name: queryName || "Casted Video Stream",
+        url: queryUrl,
+        currentTime: 0,
+        duration: 0,
+        isPlaying: true,
+        volume: 1,
+        isMuted: false,
+        updatedAt: Date.now()
+      });
+      setIsConnected(true);
+      setIsPlaying(true);
     }
   }, []);
 

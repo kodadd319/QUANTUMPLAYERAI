@@ -1,23 +1,38 @@
 {
+  "id": "/",
   "name": "QUANTUMPLAYERAI",
-  "short_name": "QUANTUMPLAYERAI",
-  "description": "Experience your music and videos like never before. Powered by advanced Gemini AI, QuantumPlayerAI instantly remasters your uploads, delivering ultra-crisp video upscaling and studio-grade audio optimization in real time. Take total control of your soundstage with a precision 5-band equalizer and tailored audio profiles optimized specifically for car audio, headphones, home audio, and immersive surround sound environments. Upload your files and let Gemini power your playback today.",
+  "short_name": "QuantumAI",
+  "description": "Ultra-crisp video upscaling, studio-grade audio optimization, and high-fidelity media player with full offline capability.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#020617",
-  "theme_color": "#020617",
+  "background_color": "#0b0202",
+  "theme_color": "#0b0202",
   "orientation": "portrait-primary",
   "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
     {
       "src": "/icon.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/icon.png",
-      "sizes": "192x192",
-      "type": "image/png"
+      "purpose": "any"
     }
   ]
 }

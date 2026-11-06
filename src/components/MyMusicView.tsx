@@ -135,27 +135,37 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
   const isLongPressing = useRef<Record<string, boolean>>({});
   const touchStartPos = useRef<Record<string, { x: number; y: number }>>({});
   const hasMoved = useRef<Record<string, boolean>>({});
+  const isSelectionModeRef = useRef(isSelectionMode);
+  isSelectionModeRef.current = isSelectionMode;
 
   const startLongPress = (id: string, e: React.MouseEvent | React.TouchEvent) => {
+    // Only respond to primary left click or touch
+    if ("button" in e && e.button !== 0) return;
+
     if (longPressTimers.current[id]) {
       clearTimeout(longPressTimers.current[id]);
     }
     isLongPressing.current[id] = false;
     hasMoved.current[id] = false;
 
-    if (e && "touches" in e && e.touches && e.touches[0]) {
+    if ("touches" in e && e.touches && e.touches[0]) {
       touchStartPos.current[id] = {
         x: e.touches[0].clientX,
         y: e.touches[0].clientY
       };
+    } else if ("clientX" in e) {
+      touchStartPos.current[id] = {
+        x: (e as React.MouseEvent).clientX,
+        y: (e as React.MouseEvent).clientY
+      };
     }
 
+    // 400ms snappy long-press trigger
     longPressTimers.current[id] = setTimeout(() => {
-      // Only trigger long press if the finger has not moved substantially
       if (!hasMoved.current[id]) {
         isLongPressing.current[id] = true;
         if (navigator.vibrate) {
-          navigator.vibrate(60);
+          navigator.vibrate(50);
         }
         setIsSelectionMode(true);
         setSelectedTrackIds(prev => {
@@ -165,7 +175,7 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
           return prev;
         });
       }
-    }, 600);
+    }, 400);
   };
 
   const cancelLongPress = (id: string) => {
@@ -175,31 +185,47 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
     }
   };
 
-  const handleTouchMove = (id: string, e: React.TouchEvent) => {
+  const handleTouchMove = (id: string, e: React.TouchEvent | React.MouseEvent) => {
     if (!touchStartPos.current[id]) return;
-    const touch = e.touches[0];
-    if (!touch) return;
+    let clientX = 0;
+    let clientY = 0;
+    if ("touches" in e && e.touches && e.touches[0]) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else if ("clientX" in e) {
+      clientX = (e as React.MouseEvent).clientX;
+      clientY = (e as React.MouseEvent).clientY;
+    } else {
+      return;
+    }
 
-    const dx = Math.abs(touch.clientX - touchStartPos.current[id].x);
-    const dy = Math.abs(touch.clientY - touchStartPos.current[id].y);
+    const dx = Math.abs(clientX - touchStartPos.current[id].x);
+    const dy = Math.abs(clientY - touchStartPos.current[id].y);
 
-    // If movement exceeds 8 pixels, treat it as a scroll/drag action, not a click/long-press
-    if (dx > 8 || dy > 8) {
+    // 20px natural finger wobble tolerance
+    if (dx > 20 || dy > 20) {
       hasMoved.current[id] = true;
       cancelLongPress(id);
     }
   };
 
-  const endLongPress = (id: string, action: () => void) => {
+  const endLongPress = (id: string, normalAction: () => void) => {
     if (longPressTimers.current[id]) {
       clearTimeout(longPressTimers.current[id]);
       delete longPressTimers.current[id];
     }
-    if (!isLongPressing.current[id] && !hasMoved.current[id]) {
-      action();
-    }
+    const wasLongPress = isLongPressing.current[id];
+    const didMove = hasMoved.current[id];
     isLongPressing.current[id] = false;
     hasMoved.current[id] = false;
+
+    if (!wasLongPress && !didMove) {
+      if (isSelectionModeRef.current) {
+        toggleSelectTrack(id);
+      } else {
+        normalAction();
+      }
+    }
   };
 
   const bindLongPress = (id: string, action: () => void) => {
@@ -494,9 +520,19 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
     }
   };
 
+  const targetTrackToDelete = useMemo(() => {
+    if (pendingDeleteIds.length === 1) {
+      return playlist.find(t => t.id === pendingDeleteIds[0]) || null;
+    }
+    return null;
+  }, [pendingDeleteIds, playlist]);
+
   const handleSingleDelete = (trackId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    setPendingDeleteIds([trackId]);
+    const idsToDelete = selectedTrackIds.length > 0
+      ? (selectedTrackIds.includes(trackId) ? [...selectedTrackIds] : [...selectedTrackIds, trackId])
+      : [trackId];
+    setPendingDeleteIds(idsToDelete);
     setShowDeleteConfirm(true);
   };
 
@@ -545,9 +581,27 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
           </p>
         </div>
         
-        {/* Songs Count Badge */}
-        <div className="self-start md:self-center">
-          <span className="px-4 py-2 rounded-2xl bg-white/[0.03] border border-white/10 text-xs text-slate-300 font-sans tracking-wider font-semibold">
+        {/* Songs Count Badge & Select Files button */}
+        <div className="self-start md:self-center flex items-center gap-3">
+          <button
+            onClick={() => {
+              setIsSelectionMode(prev => {
+                const next = !prev;
+                if (!next) setSelectedTrackIds([]);
+                return next;
+              });
+            }}
+            className={`px-3.5 py-2 rounded-xl text-xs font-sans font-semibold tracking-wide transition-all cursor-pointer flex items-center gap-2 border ${
+              isSelectionMode 
+                ? "bg-amber-500/20 border-amber-500/40 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.2)]" 
+                : "bg-white/[0.04] hover:bg-white/[0.08] border-white/10 text-slate-300 hover:text-white"
+            }`}
+            title="Toggle file selection to select and delete files"
+          >
+            <CheckSquare className="w-4 h-4 text-amber-400" />
+            <span>{isSelectionMode ? "Exit Select" : "Select Files"}</span>
+          </button>
+          <span className="px-4 py-2 rounded-xl bg-white/[0.03] border border-white/10 text-xs text-slate-300 font-sans tracking-wider font-semibold">
             {uploadedTracks.length === 1 ? "1 Song Loaded" : `${uploadedTracks.length} Songs Loaded`}
           </span>
         </div>
@@ -776,43 +830,49 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
           <div className="flex items-center gap-4">
             <button
               onClick={toggleSelectAll}
-              className="flex items-center gap-2.5 text-slate-400 hover:text-white text-xs tracking-wider transition-colors duration-150 cursor-pointer"
+              className="flex items-center gap-2.5 text-slate-300 hover:text-white text-xs tracking-wider transition-colors duration-150 cursor-pointer"
             >
-              {isAllSelected ? (
-                <CheckSquare className="w-4 h-4 text-amber-500" />
-              ) : (
-                <Square className="w-4 h-4 text-slate-650" />
-              )}
-              <span>Select all ({filteredTracks.length})</span>
+              <div className="w-4 h-4 rounded-sm border border-stone-500 flex items-center justify-center bg-black/40">
+                {isAllSelected && <Check className="w-3 h-3 text-amber-400 stroke-[3]" />}
+              </div>
+              <span>{isAllSelected ? "Deselect All" : `Select all (${filteredTracks.length})`}</span>
             </button>
             
             {isSelectionMode && (
-              <span className="px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-[10px] font-sans font-semibold text-amber-400 uppercase tracking-wider">
-                Selection Mode Active ({selectedTrackIds.length} Selected)
+              <span className="px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] font-sans font-semibold text-amber-400 tracking-wider">
+                {selectedTrackIds.length} {selectedTrackIds.length === 1 ? "File Selected" : "Files Selected"}
               </span>
             )}
           </div>
 
           <div className="flex items-center gap-2">
-            {isSelectionMode && (
+            {isSelectionMode ? (
               <button
                 onClick={() => {
                   setIsSelectionMode(false);
                   setSelectedTrackIds([]);
                 }}
-                className="px-4 py-2 text-xs text-slate-400 hover:text-white hover:bg-white/5 border border-transparent rounded-xl transition-all duration-150 cursor-pointer"
+                className="px-4 py-2 text-xs text-slate-400 hover:text-white hover:bg-white/5 border border-white/10 rounded-xl transition-all duration-150 cursor-pointer"
               >
                 Cancel
+              </button>
+            ) : (
+              <button
+                onClick={() => setIsSelectionMode(true)}
+                className="px-4 py-2 text-xs text-slate-300 hover:text-white hover:bg-white/5 border border-white/10 rounded-xl transition-all duration-150 cursor-pointer flex items-center gap-1.5"
+              >
+                <CheckSquare className="w-3.5 h-3.5 text-amber-400" />
+                <span>Select Files</span>
               </button>
             )}
 
             {selectedTrackIds.length > 0 && (
               <button
                 onClick={handleBatchDelete}
-                className="px-4 py-2 text-xs text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/15 border border-red-500/20 active:scale-95 rounded-xl transition-all duration-150 flex items-center gap-2 cursor-pointer"
+                className="px-5 py-2.5 text-xs font-sans font-bold text-white bg-red-600 hover:bg-red-500 active:scale-95 rounded-xl shadow-lg shadow-red-600/30 transition-all flex items-center gap-2 cursor-pointer"
               >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Delete selected ({selectedTrackIds.length})</span>
+                <Trash2 className="w-4 h-4" />
+                <span>Delete ({selectedTrackIds.length})</span>
               </button>
             )}
           </div>
@@ -860,19 +920,27 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                       }`}
                     >
                       <div className="flex-1 min-w-0 flex items-center gap-3.5">
-                        <button
-                           onClick={(e) => toggleSelectTrack(track.id, e)}
-                           onMouseDown={(e) => e.stopPropagation()} // Prevent long press triggering from checkbox click
-                           className={`text-slate-400 hover:text-white p-0.5 focus:outline-none cursor-pointer transition-opacity duration-200 shrink-0 ${
-                             isSelectionMode ? "opacity-100 text-amber-500" : "opacity-25 sm:opacity-0 sm:group-hover:opacity-60 hover:!opacity-100"
-                           }`}
+                        {/* Box and Checkmark System */}
+                        <div
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleSelectTrack(track.id);
+                          }}
+                          className={`p-1 rounded-lg cursor-pointer transition-all shrink-0 flex items-center justify-center ${
+                            isSelectionMode 
+                              ? "opacity-100" 
+                              : "opacity-35 sm:opacity-0 sm:group-hover:opacity-70 hover:!opacity-100"
+                          }`}
+                          title={isSelectedForDel ? "Deselect track" : "Select track"}
                         >
                           {isSelectedForDel ? (
-                            <CheckSquare className="w-4 h-4 text-amber-500" />
+                            <div className="w-5 h-5 rounded-md bg-amber-500 border border-amber-400 flex items-center justify-center text-stone-950 shadow-[0_0_8px_rgba(245,158,11,0.5)]">
+                              <Check className="w-3.5 h-3.5 stroke-[3]" />
+                            </div>
                           ) : (
-                            <Square className="w-4 h-4 text-slate-650 group-hover:text-slate-400 transition-colors" />
+                            <div className="w-5 h-5 rounded-md border-2 border-stone-500 hover:border-amber-400/80 bg-black/40 transition-colors" />
                           )}
-                        </button>
+                        </div>
 
                         {/* Track Album Art Thumbnail */}
                         <div className="w-10 h-10 rounded-lg overflow-hidden bg-white/5 border border-white/10 shrink-0 flex items-center justify-center relative">
@@ -909,10 +977,18 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                           {track.duration ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}` : ""}
                         </span>
                         <button
-                          onClick={(e) => handleSingleDelete(track.id, e)}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            handleSingleDelete(track.id, e);
+                          }}
                           onMouseDown={(e) => e.stopPropagation()}
+                          onTouchStart={(e) => e.stopPropagation()}
+                          onTouchEnd={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => e.stopPropagation()}
                           title="Delete track"
-                          className="p-1.5 rounded-lg bg-black/40 hover:bg-red-600/90 border border-white/10 text-slate-400 hover:text-white transition-all cursor-pointer opacity-80 sm:opacity-0 sm:group-hover:opacity-100"
+                          className="p-1.5 rounded-lg bg-black/50 hover:bg-red-600 border border-white/15 text-slate-400 hover:text-white transition-all cursor-pointer opacity-80 hover:opacity-100 shrink-0 active:scale-95 z-20"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -969,19 +1045,27 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                                 }`}
                               >
                                 <div className="flex-1 min-w-0 flex items-center gap-3">
-                                  <button
-                                    onClick={(e) => toggleSelectTrack(track.id, e)}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                    className={`text-slate-450 hover:text-white p-0.5 focus:outline-none cursor-pointer transition-opacity duration-200 shrink-0 ${
-                                      isSelectionMode ? "opacity-100 text-amber-500" : "opacity-25 sm:opacity-0 sm:group-hover:opacity-60 hover:!opacity-100"
+                                  {/* Box and Checkmark System */}
+                                  <div
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleSelectTrack(track.id);
+                                    }}
+                                    className={`p-1 rounded-lg cursor-pointer transition-all shrink-0 flex items-center justify-center ${
+                                      isSelectionMode 
+                                        ? "opacity-100" 
+                                        : "opacity-35 sm:opacity-0 sm:group-hover:opacity-70 hover:!opacity-100"
                                     }`}
+                                    title={isSelectedForDel ? "Deselect track" : "Select track"}
                                   >
                                     {isSelectedForDel ? (
-                                      <CheckSquare className="w-3.5 h-3.5 text-amber-500" />
+                                      <div className="w-5 h-5 rounded-md bg-amber-500 border border-amber-400 flex items-center justify-center text-stone-950 shadow-[0_0_8px_rgba(245,158,11,0.5)]">
+                                        <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                      </div>
                                     ) : (
-                                      <Square className="w-3.5 h-3.5 text-slate-700 group-hover:text-slate-400" />
+                                      <div className="w-5 h-5 rounded-md border-2 border-stone-500 hover:border-amber-400/80 bg-black/40 transition-colors" />
                                     )}
-                                  </button>
+                                  </div>
                                   
                                   {/* Track Album Art Thumbnail */}
                                   <div className="w-8 h-8 rounded-lg overflow-hidden bg-white/5 border border-white/10 shrink-0 flex items-center justify-center relative">
@@ -1010,10 +1094,18 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                                     {track.duration ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}` : ""}
                                   </span>
                                   <button
-                                    onClick={(e) => handleSingleDelete(track.id, e)}
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      e.preventDefault();
+                                      handleSingleDelete(track.id, e);
+                                    }}
                                     onMouseDown={(e) => e.stopPropagation()}
+                                    onTouchStart={(e) => e.stopPropagation()}
+                                    onTouchEnd={(e) => e.stopPropagation()}
+                                    onPointerDown={(e) => e.stopPropagation()}
                                     title="Delete track"
-                                    className="p-1.5 rounded-lg bg-black/40 hover:bg-red-600/90 border border-white/10 text-slate-400 hover:text-white transition-all cursor-pointer opacity-80 sm:opacity-0 sm:group-hover:opacity-100"
+                                    className="p-1.5 rounded-lg bg-black/50 hover:bg-red-600 border border-white/15 text-slate-400 hover:text-white transition-all cursor-pointer opacity-80 hover:opacity-100 shrink-0 active:scale-95 z-20"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>
@@ -1075,19 +1167,27 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                                 }`}
                               >
                                 <div className="flex-1 min-w-0 flex items-center gap-3">
-                                  <button
-                                    onClick={(e) => toggleSelectTrack(track.id, e)}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                    className={`text-slate-450 hover:text-white p-0.5 focus:outline-none cursor-pointer transition-opacity duration-200 shrink-0 ${
-                                      isSelectionMode ? "opacity-100 text-amber-500" : "opacity-25 sm:opacity-0 sm:group-hover:opacity-60 hover:!opacity-100"
+                                  {/* Box and Checkmark System */}
+                                  <div
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleSelectTrack(track.id);
+                                    }}
+                                    className={`p-1 rounded-lg cursor-pointer transition-all shrink-0 flex items-center justify-center ${
+                                      isSelectionMode 
+                                        ? "opacity-100" 
+                                        : "opacity-35 sm:opacity-0 sm:group-hover:opacity-70 hover:!opacity-100"
                                     }`}
+                                    title={isSelectedForDel ? "Deselect track" : "Select track"}
                                   >
                                     {isSelectedForDel ? (
-                                      <CheckSquare className="w-3.5 h-3.5 text-amber-500" />
+                                      <div className="w-5 h-5 rounded-md bg-amber-500 border border-amber-400 flex items-center justify-center text-stone-950 shadow-[0_0_8px_rgba(245,158,11,0.5)]">
+                                        <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                      </div>
                                     ) : (
-                                      <Square className="w-3.5 h-3.5 text-slate-700 group-hover:text-slate-400" />
+                                      <div className="w-5 h-5 rounded-md border-2 border-stone-500 hover:border-amber-400/80 bg-black/40 transition-colors" />
                                     )}
-                                  </button>
+                                  </div>
                                   
                                   {/* Track Album Art Thumbnail */}
                                   <div className="w-8 h-8 rounded-lg overflow-hidden bg-white/5 border border-white/10 shrink-0 flex items-center justify-center relative">
@@ -1116,10 +1216,18 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                                     {track.duration ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}` : ""}
                                   </span>
                                   <button
-                                    onClick={(e) => handleSingleDelete(track.id, e)}
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      e.preventDefault();
+                                      handleSingleDelete(track.id, e);
+                                    }}
                                     onMouseDown={(e) => e.stopPropagation()}
+                                    onTouchStart={(e) => e.stopPropagation()}
+                                    onTouchEnd={(e) => e.stopPropagation()}
+                                    onPointerDown={(e) => e.stopPropagation()}
                                     title="Delete track"
-                                    className="p-1.5 rounded-lg bg-black/40 hover:bg-red-600/90 border border-white/10 text-slate-400 hover:text-white transition-all cursor-pointer opacity-80 sm:opacity-0 sm:group-hover:opacity-100"
+                                    className="p-1.5 rounded-lg bg-black/50 hover:bg-red-600 border border-white/15 text-slate-400 hover:text-white transition-all cursor-pointer opacity-80 hover:opacity-100 shrink-0 active:scale-95 z-20"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>
@@ -1185,19 +1293,27 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                                 }`}
                               >
                                 <div className="flex-1 min-w-0 flex items-center gap-3">
-                                  <button
-                                    onClick={(e) => toggleSelectTrack(track.id, e)}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                    className={`text-slate-450 hover:text-white p-0.5 focus:outline-none cursor-pointer transition-opacity duration-200 shrink-0 ${
-                                      isSelectionMode ? "opacity-100 text-amber-500" : "opacity-25 sm:opacity-0 sm:group-hover:opacity-60 hover:!opacity-100"
+                                  {/* Box and Checkmark System */}
+                                  <div
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleSelectTrack(track.id);
+                                    }}
+                                    className={`p-1 rounded-lg cursor-pointer transition-all shrink-0 flex items-center justify-center ${
+                                      isSelectionMode 
+                                        ? "opacity-100" 
+                                        : "opacity-35 sm:opacity-0 sm:group-hover:opacity-70 hover:!opacity-100"
                                     }`}
+                                    title={isSelectedForDel ? "Deselect track" : "Select track"}
                                   >
                                     {isSelectedForDel ? (
-                                      <CheckSquare className="w-3.5 h-3.5 text-amber-500" />
+                                      <div className="w-5 h-5 rounded-md bg-amber-500 border border-amber-400 flex items-center justify-center text-stone-950 shadow-[0_0_8px_rgba(245,158,11,0.5)]">
+                                        <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                      </div>
                                     ) : (
-                                      <Square className="w-3.5 h-3.5 text-slate-700 group-hover:text-slate-400" />
+                                      <div className="w-5 h-5 rounded-md border-2 border-stone-500 hover:border-amber-400/80 bg-black/40 transition-colors" />
                                     )}
-                                  </button>
+                                  </div>
                                   
                                   {/* Track Album Art Thumbnail */}
                                   <div className="w-8 h-8 rounded-lg overflow-hidden bg-white/5 border border-white/10 shrink-0 flex items-center justify-center relative">
@@ -1230,10 +1346,18 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                                     {track.duration ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}` : ""}
                                   </span>
                                   <button
-                                    onClick={(e) => handleSingleDelete(track.id, e)}
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      e.preventDefault();
+                                      handleSingleDelete(track.id, e);
+                                    }}
                                     onMouseDown={(e) => e.stopPropagation()}
+                                    onTouchStart={(e) => e.stopPropagation()}
+                                    onTouchEnd={(e) => e.stopPropagation()}
+                                    onPointerDown={(e) => e.stopPropagation()}
                                     title="Delete track"
-                                    className="p-1.5 rounded-lg bg-black/40 hover:bg-red-600/90 border border-white/10 text-slate-400 hover:text-white transition-all cursor-pointer opacity-80 sm:opacity-0 sm:group-hover:opacity-100"
+                                    className="p-1.5 rounded-lg bg-black/50 hover:bg-red-600 border border-white/15 text-slate-400 hover:text-white transition-all cursor-pointer opacity-80 hover:opacity-100 shrink-0 active:scale-95 z-20"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>
@@ -1295,19 +1419,27 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                                 }`}
                               >
                                 <div className="flex-1 min-w-0 flex items-center gap-3">
-                                  <button
-                                    onClick={(e) => toggleSelectTrack(track.id, e)}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                    className={`text-slate-450 hover:text-white p-0.5 focus:outline-none cursor-pointer transition-opacity duration-200 shrink-0 ${
-                                      isSelectionMode ? "opacity-100 text-amber-500" : "opacity-25 sm:opacity-0 sm:group-hover:opacity-60 hover:!opacity-100"
+                                  {/* Box and Checkmark System */}
+                                  <div
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleSelectTrack(track.id);
+                                    }}
+                                    className={`p-1 rounded-lg cursor-pointer transition-all shrink-0 flex items-center justify-center ${
+                                      isSelectionMode 
+                                        ? "opacity-100" 
+                                        : "opacity-35 sm:opacity-0 sm:group-hover:opacity-70 hover:!opacity-100"
                                     }`}
+                                    title={isSelectedForDel ? "Deselect track" : "Select track"}
                                   >
                                     {isSelectedForDel ? (
-                                      <CheckSquare className="w-3.5 h-3.5 text-amber-500" />
+                                      <div className="w-5 h-5 rounded-md bg-amber-500 border border-amber-400 flex items-center justify-center text-stone-950 shadow-[0_0_8px_rgba(245,158,11,0.5)]">
+                                        <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                      </div>
                                     ) : (
-                                      <Square className="w-3.5 h-3.5 text-slate-700 group-hover:text-slate-400" />
+                                      <div className="w-5 h-5 rounded-md border-2 border-stone-500 hover:border-amber-400/80 bg-black/40 transition-colors" />
                                     )}
-                                  </button>
+                                  </div>
                                   
                                   {/* Track Album Art Thumbnail */}
                                   <div className="w-8 h-8 rounded-lg overflow-hidden bg-white/5 border border-white/10 shrink-0 flex items-center justify-center relative">
@@ -1340,10 +1472,18 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                                     {track.duration ? `${Math.floor(track.duration / 60)}:${String(track.duration % 60).padStart(2, "0")}` : ""}
                                   </span>
                                   <button
-                                    onClick={(e) => handleSingleDelete(track.id, e)}
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      e.preventDefault();
+                                      handleSingleDelete(track.id, e);
+                                    }}
                                     onMouseDown={(e) => e.stopPropagation()}
+                                    onTouchStart={(e) => e.stopPropagation()}
+                                    onTouchEnd={(e) => e.stopPropagation()}
+                                    onPointerDown={(e) => e.stopPropagation()}
                                     title="Delete track"
-                                    className="p-1.5 rounded-lg bg-black/40 hover:bg-red-600/90 border border-white/10 text-slate-400 hover:text-white transition-all cursor-pointer opacity-80 sm:opacity-0 sm:group-hover:opacity-100"
+                                    className="p-1.5 rounded-lg bg-black/50 hover:bg-red-600 border border-white/15 text-slate-400 hover:text-white transition-all cursor-pointer opacity-80 hover:opacity-100 shrink-0 active:scale-95 z-20"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>
@@ -1369,12 +1509,17 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            onClick={() => {
+              setShowDeleteConfirm(false);
+              setPendingDeleteIds([]);
+            }}
             className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4"
           >
             <motion.div
               initial={{ scale: 0.95, y: 10 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.95, y: 10 }}
+              onClick={(e) => e.stopPropagation()}
               className="w-full max-w-md bg-[#0f0a09] border border-stone-800 rounded-2xl p-6 shadow-2xl text-left"
             >
               <div className="flex items-center gap-3.5 mb-4">
@@ -1383,22 +1528,33 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                 </div>
                 <div>
                   <h3 className="text-base font-sans font-bold text-white uppercase tracking-wide">
-                    Confirm Deletion
+                    Delete Track
                   </h3>
                   <p className="text-xs text-slate-400 mt-1 font-light">
-                    This action is irreversible.
+                    Confirmation prompt
                   </p>
                 </div>
               </div>
 
-              <p className="text-xs text-slate-300 font-light leading-relaxed mb-6">
-                Are you sure you want to permanently remove the selected <strong className="text-white font-semibold">{(pendingDeleteIds.length > 0 ? pendingDeleteIds.length : selectedTrackIds.length)} track(s)</strong> from your local music library storage?
+              <p className="text-sm text-slate-300 font-light leading-relaxed mb-6">
+                {targetTrackToDelete ? (
+                  <>
+                    Are you sure you want to delete <strong className="text-white font-semibold">"{targetTrackToDelete.name}"</strong> from your library?
+                  </>
+                ) : (
+                  <>
+                    Are you sure you want to delete the <strong className="text-white font-semibold">{(pendingDeleteIds.length > 0 ? pendingDeleteIds.length : selectedTrackIds.length)}</strong> selected track(s) from your library?
+                  </>
+                )}
               </p>
 
               <div className="flex items-center justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowDeleteConfirm(false)}
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    setPendingDeleteIds([]);
+                  }}
                   className="px-4 py-2.5 rounded-xl border border-stone-800 text-slate-400 hover:text-white hover:bg-white/5 text-xs font-sans font-medium transition-all cursor-pointer"
                 >
                   Cancel
@@ -1408,10 +1564,55 @@ export const MyMusicView: React.FC<MyMusicViewProps> = ({
                   onClick={confirmDelete}
                   className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white text-xs font-sans font-bold transition-all active:scale-[98.5%] cursor-pointer shadow-lg shadow-red-500/10"
                 >
-                  Delete Permanently
+                  Yes, Delete
                 </button>
               </div>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Floating Bottom Action Bar when Selection Mode is Active */}
+      <AnimatePresence>
+        {isSelectionMode && (
+          <motion.div
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 40 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] flex items-center justify-between gap-3 px-5 py-3 rounded-2xl bg-[#140e0d]/95 backdrop-blur-xl border border-amber-500/40 shadow-2xl shadow-black/90 max-w-md w-[92%]"
+          >
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
+              <span className="text-xs font-sans font-bold text-white">
+                {selectedTrackIds.length} {selectedTrackIds.length === 1 ? "file selected" : "files selected"}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleSelectAll}
+                className="px-2.5 py-1.5 text-[11px] font-sans font-medium text-slate-300 hover:text-white transition-colors cursor-pointer"
+              >
+                {isAllSelected ? "Deselect" : "Select All"}
+              </button>
+              <button
+                onClick={() => {
+                  setIsSelectionMode(false);
+                  setSelectedTrackIds([]);
+                }}
+                className="px-2.5 py-1.5 text-[11px] font-sans font-medium text-slate-400 hover:text-white transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleBatchDelete}
+                disabled={selectedTrackIds.length === 0}
+                className="px-4 py-2 rounded-xl text-xs font-sans font-bold text-white bg-red-600 hover:bg-red-500 disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-red-600/30 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete</span>
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

@@ -88,6 +88,21 @@ export const AuthView: React.FC<AuthViewProps> = ({
     const { email: authEmail, rawInput, isUsername } = formatEmailFromInput(usernameOrEmail);
     const isAdmin = isAdminUserEmail(usernameOrEmail) || isAdminUserEmail(authEmail);
 
+    // If offline, seamlessly establish an offline user session to unlock the offline library
+    if (!navigator.onLine) {
+      const offlineUser = {
+        uid: isAdmin ? "admin_offline" : `user_${rawInput.replace(/[^a-z0-9]/gi, "").toLowerCase() || "offline"}`,
+        email: authEmail,
+        displayName: rawInput
+      };
+      localStorage.setItem("quantumplayer_cached_user", JSON.stringify(offlineUser));
+      if (isAdmin) {
+        localStorage.setItem("quantumplayer_admin_override", authEmail);
+      }
+      onSuccess();
+      return;
+    }
+
     try {
       if (isAdmin) {
         localStorage.setItem("quantumplayer_admin_override", authEmail);
@@ -132,6 +147,19 @@ export const AuthView: React.FC<AuthViewProps> = ({
       }
     } catch (err: any) {
       console.error("Auth error:", err);
+      if (!navigator.onLine || err?.code === "auth/network-request-failed") {
+        const offlineUser = {
+          uid: isAdmin ? "admin_offline" : `user_${rawInput.replace(/[^a-z0-9]/gi, "").toLowerCase() || "offline"}`,
+          email: authEmail,
+          displayName: rawInput
+        };
+        localStorage.setItem("quantumplayer_cached_user", JSON.stringify(offlineUser));
+        if (isAdmin) {
+          localStorage.setItem("quantumplayer_admin_override", authEmail);
+        }
+        onSuccess();
+        return;
+      }
       setError(getFriendlyError(err?.code || err?.message || ""));
     } finally {
       setLoading(false);

@@ -22,13 +22,16 @@
     <meta property="og:title" content="QUANTUMPLAYERAI" />
     <meta property="og:description" content="Experience your music and videos like never before powered by Gemini AI." />
     <title>QUANTUMPLAYERAI</title>
-    <!-- Icons and Manifest for "Add to Home Screen" -->
-    <link rel="icon" type="image/png" href="/icon.png" />
-    <link rel="apple-touch-icon" href="/icon.png" />
+    <!-- Icons and Manifest for "Add to Home Screen" & PWA Offline Support -->
+    <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/pwa-512x512.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#020617" />
+    <meta name="theme-color" content="#0b0202" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="QuantumAI" />
     <style>
       html, body {
         background-color: #0b0202 !important;
@@ -49,8 +52,8 @@
   <body style="background-color: #0b0202; color: #f8fafc; margin: 0; padding: 0;">
     <div id="root"></div>
 
-    <!-- Google Cast Sender SDK -->
-    <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+    <!-- Google Cast Sender SDK (async for non-blocking offline startup) -->
+    <script async src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
     <script>
       window['__onGCastApiAvailable'] = function(isAvailable) {
         if (isAvailable && window.cast && window.cast.framework) {
@@ -67,19 +70,6 @@
     </script>
 
     <script type="module" src="/src/main.tsx"></script>
-    <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', function() {
-          navigator.serviceWorker.register('/sw.js')
-            .then(function(registration) {
-              console.log('ServiceWorker registration successful with scope: ', registration.scope);
-            })
-            .catch(function(err) {
-              console.warn('ServiceWorker registration failed: ', err);
-            });
-        });
-      }
-    </script>
   </body>
 </html>
 

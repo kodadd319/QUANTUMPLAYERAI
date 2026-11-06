@@ -6,5 +6,7 @@
   "firestoreDatabaseId": "ai-studio-121a998e-f48a-4fe6-99da-b27a251b5324",
   "storageBucket": "eliteplayerai.firebasestorage.app",
   "messagingSenderId": "338444614799",
-  "measurementId": ""
+  "measurementId": "",
+  "oAuthClientId": "338444614799-v7v3q9hfdjh5rsoub4ds45b76bkof072.apps.googleusercontent.com",
+  "recaptchaSiteKey": ""
 }

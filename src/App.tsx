@@ -56,7 +56,7 @@ import { auth, db, storage, googleProvider } from "./firebase";
 import { onAuthStateChanged, signOut, User } from "firebase/auth"; 
 import { doc, getDoc, setDoc, collection, addDoc, query, where, onSnapshot, deleteDoc, getDocs } from "firebase/firestore"; 
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage"; 
-import { getLocalTracks, storeLocalTrack, deleteLocalTrack, getLocalVideos, storeLocalVideo, deleteLocalVideo } from "./utils/localMediaStorage"; 
+import { getLocalTracks, storeLocalTrack, deleteLocalTrack, getLocalVideos, storeLocalVideo, deleteLocalVideo, getLocalTrackBlob } from "./utils/localMediaStorage"; 
 import { deleteVideoBlob } from "./utils/videoStorage"; 
 import { isAdminUserEmail, getAdminEmailDisplay } from "./utils/admin"; 
 import { extractVideoFrame, getOrGenerateVideoThumbnail, videoThumbnailCache } from "./utils/videoThumbnailGenerator"; 
@@ -551,14 +551,18 @@ function MainApp() {
       setVideoCurrentFile("Reading selected video files from storage...");
       await new Promise((r) => setTimeout(r, 250));
 
-      const allowedExtensions = [".mp4", ".webm", ".avi", ".mkv", ".mov", ".3gp", ".m4v"];
+      const allowedExtensions = [
+        ".mp4", ".webm", ".avi", ".mkv", ".mov", ".3gp", ".m4v", 
+        ".ts", ".flv", ".wmv", ".ogv", ".mpg", ".mpeg", ".m2ts", 
+        ".vob", ".divx", ".asf", ".f4v"
+      ];
       const filteredFiles = files.filter(file => {
         const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
         return allowedExtensions.includes(ext) || file.type.startsWith("video/");
       });
 
       if (filteredFiles.length === 0) {
-        throw new Error("No valid video files found (.mp4, .webm, .avi, .mkv, .mov, .3gp, .m4v).");
+        throw new Error("No valid video files found in selected items (.mp4, .webm, .avi, .mkv, .mov, .3gp, .m4v, .ts, .wmv, etc.).");
       }
 
       const totalVideos = filteredFiles.length;
@@ -625,8 +629,45 @@ function MainApp() {
     }
   };
 
+  const getDeletedTombstones = (): { tracks: Set<string>; videos: Set<string> } => {
+    try {
+      const raw = localStorage.getItem("quantum_deleted_media_v1");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return {
+          tracks: new Set<string>(parsed.tracks || []),
+          videos: new Set<string>(parsed.videos || [])
+        };
+      }
+    } catch {}
+    return { tracks: new Set<string>(), videos: new Set<string>() };
+  };
+
+  const saveDeletedTombstones = (trackIds: string[], videoIds: string[]) => {
+    try {
+      const current = getDeletedTombstones();
+      trackIds.forEach(id => {
+        current.tracks.add(id);
+        current.tracks.add(id.replace("local-db://", ""));
+        current.tracks.add(`local-db://${id.replace("local-db://", "")}`);
+      });
+      videoIds.forEach(id => {
+        current.videos.add(id);
+        current.videos.add(id.replace("local-db://", ""));
+        current.videos.add(`local-db://${id.replace("local-db://", "")}`);
+      });
+      localStorage.setItem("quantum_deleted_media_v1", JSON.stringify({
+        tracks: Array.from(current.tracks),
+        videos: Array.from(current.videos)
+      }));
+    } catch (e) {
+      console.warn("saveDeletedTombstones notice:", e);
+    }
+  };
+
   const refreshLocalMedia = async (userToUse?: any) => {
     try {
+      const tombstones = getDeletedTombstones();
       const activeUser = userToUse !== undefined ? userToUse : currentUser;
       const dbTracks = await getLocalTracks();
       const dbVideos = await getLocalVideos();
@@ -634,9 +675,12 @@ function MainApp() {
       let songs: Track[] = [];
       let vids: any[] = [];
 
-      // Build video list: Always include ALL local videos stored in IndexedDB first
+      // Build video list: Always include ALL local videos stored in IndexedDB first, omitting deleted ones
       const vidsMap = new Map<string, any>();
       for (const localVid of dbVideos) {
+        if (tombstones.videos.has(localVid.id) || tombstones.videos.has(`local-db://${localVid.id}`)) {
+          continue;
+        }
         vidsMap.set(localVid.id, {
           id: localVid.id,
           name: localVid.name || "Local Video",
@@ -650,9 +694,12 @@ function MainApp() {
         });
       }
 
-      // Build track list: Always include ALL local tracks stored in IndexedDB first
+      // Build track list: Always include ALL local tracks stored in IndexedDB first, omitting deleted ones
       const songsMap = new Map<string, any>();
       for (const localTrack of dbTracks) {
+        if (tombstones.tracks.has(localTrack.id) || tombstones.tracks.has(`local-db://${localTrack.id}`)) {
+          continue;
+        }
         songsMap.set(localTrack.id, {
           id: localTrack.id,
           name: localTrack.name || "Local Track",
@@ -676,6 +723,9 @@ function MainApp() {
           const tracksQuery = query(collection(db, "tracks"), where("uid", "==", activeUser.uid));
           const tracksSnap = await getDocs(tracksQuery);
           tracksSnap.forEach((docSnap) => {
+            if (tombstones.tracks.has(docSnap.id) || tombstones.tracks.has(`local-db://${docSnap.id}`)) {
+              return;
+            }
             remoteTrackIds.add(docSnap.id);
             const data = docSnap.data();
             const existing = songsMap.get(docSnap.id);
@@ -709,6 +759,9 @@ function MainApp() {
           const videosQuery = query(collection(db, "videos"), where("uid", "==", activeUser.uid));
           const videosSnap = await getDocs(videosQuery);
           videosSnap.forEach((docSnap) => {
+            if (tombstones.videos.has(docSnap.id) || tombstones.videos.has(`local-db://${docSnap.id}`)) {
+              return;
+            }
             remoteVideoIds.add(docSnap.id);
             const data = docSnap.data();
             const existing = vidsMap.get(docSnap.id);
@@ -735,8 +788,9 @@ function MainApp() {
           console.warn("Firestore videos fetch notice:", fsErr);
         }
 
-        // Background sync missing local media to Firestore only if not already present
+        // Background sync missing local media to Firestore only if not deleted
         for (const localVid of dbVideos) {
+          if (tombstones.videos.has(localVid.id) || tombstones.videos.has(`local-db://${localVid.id}`)) continue;
           if (!remoteVideoIds.has(localVid.id)) {
             setDoc(doc(db, "videos", localVid.id), {
               uid: activeUser.uid,
@@ -752,6 +806,7 @@ function MainApp() {
         }
 
         for (const localTrack of dbTracks) {
+          if (tombstones.tracks.has(localTrack.id) || tombstones.tracks.has(`local-db://${localTrack.id}`)) continue;
           if (!remoteTrackIds.has(localTrack.id)) {
             setDoc(doc(db, "tracks", localTrack.id), {
               uid: activeUser.uid,
@@ -769,8 +824,8 @@ function MainApp() {
         }
       }
 
-      songs = Array.from(songsMap.values());
-      vids = Array.from(vidsMap.values());
+      songs = Array.from(songsMap.values()).filter(t => !tombstones.tracks.has(t.id));
+      vids = Array.from(vidsMap.values()).filter(v => !tombstones.videos.has(v.id));
 
       // Backfill missing thumbnails in the background asynchronously
       vids.forEach((v) => {
@@ -866,7 +921,14 @@ function MainApp() {
         console.log("Firebase Authenticated Session Established:", user.uid);         
         setCurrentUser(user);         
         setIsLoggedIn(true);
-        setAuthLoading(false);         
+        setAuthLoading(false);
+        try {
+          localStorage.setItem("quantumplayer_cached_user", JSON.stringify({
+            uid: user.uid,
+            email: user.email,
+            displayName: user.displayName
+          }));
+        } catch (e) {}         
         const userDocRef = doc(db, "users", user.uid);         
         const unsubscribeSettings = onSnapshot(userDocRef, (docSnap) => {           
           if (docSnap.exists()) {             
@@ -1060,6 +1122,7 @@ function MainApp() {
       } else {         
         setCurrentUser(null);         
         setIsLoggedIn(false);
+        localStorage.removeItem("quantumplayer_cached_user");
         localStorage.removeItem("quantumplayer_admin_override");
         setFirestoreTracks([]);         
         setFirestoreVideos([]);         
@@ -1153,6 +1216,7 @@ function MainApp() {
 
     setCurrentUser(null);
     setIsLoggedIn(false);
+    localStorage.removeItem("quantumplayer_cached_user");
     localStorage.removeItem("quantumplayer_admin_override");
     setFirestoreTracks([]);
     setFirestoreVideos([]);
@@ -1783,17 +1847,23 @@ function MainApp() {
         try {
           audio.removeAttribute("crossorigin");
           const trackId = track.url.replace("local-db://", "");
-          const dbTracks = await getLocalTracks();
-          const targetTrack = dbTracks.find(t => t.id === trackId || t.id === track.id || (t.name && track.name && t.name.toLowerCase() === track.name.toLowerCase()));
-          if (targetTrack && targetTrack.blob) {
-            const blobUrl = URL.createObjectURL(targetTrack.blob);
+          const directBlob = await getLocalTrackBlob(trackId);
+          if (directBlob) {
+            const blobUrl = URL.createObjectURL(directBlob);
             audio.src = blobUrl;
-          } else if ((track as any).cloudUrl || (track as any).audioUrl) {
-            audio.crossOrigin = "anonymous";
-            audio.src = (track as any).cloudUrl || (track as any).audioUrl;
           } else {
-            console.warn(`Local audio track blob not found in IndexedDB for track "${track.name}" (${trackId}). Switching to synthetic audio mode.`);
-            setCurrentSyntheticLabel(track.name || "Synth Track");
+            const dbTracks = await getLocalTracks();
+            const targetTrack = dbTracks.find(t => t.id === trackId || t.id === track.id || (t.name && track.name && t.name.toLowerCase() === track.name.toLowerCase()));
+            if (targetTrack && targetTrack.blob) {
+              const blobUrl = URL.createObjectURL(targetTrack.blob);
+              audio.src = blobUrl;
+            } else if ((track as any).cloudUrl || (track as any).audioUrl) {
+              audio.crossOrigin = "anonymous";
+              audio.src = (track as any).cloudUrl || (track as any).audioUrl;
+            } else {
+              console.warn(`Local audio track blob not found in IndexedDB for track "${track.name}" (${trackId}). Switching to synthetic audio mode.`);
+              setCurrentSyntheticLabel(track.name || "Synth Track");
+            }
           }
         } catch (err) {
           console.warn("Notice: Local database audio track blob unreadable, using synthetic fallback:", err);
@@ -2313,47 +2383,70 @@ function MainApp() {
 
   const deleteSelectedTracks = async (trackIds: string[]) => {
     if (!trackIds || trackIds.length === 0) return;
-    const cleanIds = trackIds.map(id => id.replace("local-db://", ""));
+    
+    // Save to tombstone registry so it will NEVER be restored by query cache or background sync
+    saveDeletedTombstones(trackIds, []);
+    const tombstones = getDeletedTombstones();
 
     // 1. Optimistically update local state so tracks vanish immediately from UI
-    setFirestoreTracks(prev => prev.filter(t => !cleanIds.includes(t.id) && !trackIds.includes(t.id)));
-    setPlaylist(prev => prev.filter(t => !cleanIds.includes(t.id) && !trackIds.includes(t.id)));
+    setFirestoreTracks(prev => prev.filter(t => !tombstones.tracks.has(t.id) && !trackIds.includes(t.id)));
+    setPlaylist(prev => prev.filter(t => !tombstones.tracks.has(t.id) && !trackIds.includes(t.id)));
 
-    // 2. Delete from IndexedDB and Firestore
+    // 2. Stop playback if currently active track was deleted
+    const currentPlayingTrack = playlist[currentTrackIndex];
+    if (currentPlayingTrack && (tombstones.tracks.has(currentPlayingTrack.id) || trackIds.includes(currentPlayingTrack.id))) {
+      stopSyntheticOsc();
+      setIsPlaying(false);
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = "";
+      }
+      setCurrentTrackIndex(-1);
+    }
+
+    // 3. Delete from IndexedDB and Firestore
     for (const rawId of trackIds) {
       const cleanId = rawId.replace("local-db://", "");
-      if (cleanId.startsWith("sample-")) continue;
 
       try {
         await deleteLocalTrack(cleanId);
         await deleteLocalTrack(rawId);
-        console.log("Deleted local IndexedDB track successfully:", cleanId);
+        await deleteLocalTrack(`local-db://${cleanId}`);
       } catch (err) {
-        console.error("Failed deleting local track:", cleanId, err);
+        console.warn("IndexedDB delete track error:", cleanId, err);
       }
 
       if (currentUser) {
         try {
           await deleteDoc(doc(db, "tracks", cleanId));
-          console.log("Deleted remote Firestore track successfully:", cleanId);
         } catch (remErr) {
           console.warn("Firestore delete track notice:", cleanId, remErr);
+        }
+        if (cleanId !== rawId) {
+          try {
+            await deleteDoc(doc(db, "tracks", rawId));
+          } catch {}
         }
       }
     }
 
-    await refreshLocalMedia();
-
+    // 4. Refresh local media and strictly enforce tombstone filtering
+    const { songs } = await refreshLocalMedia();
+    const cleanDeletedTracks = new Set<string>();
+    trackIds.forEach(id => {
+      cleanDeletedTracks.add(id);
+      cleanDeletedTracks.add(id.replace("local-db://", ""));
+      cleanDeletedTracks.add(`local-db://${id.replace("local-db://", "")}`);
+    });
+    const remainingTracks = songs.filter(t => !cleanDeletedTracks.has(t.id) && !tombstones.tracks.has(t.id));
+    setFirestoreTracks(remainingTracks);
     setPlaylist((prev) => {
-      const remaining = prev.filter(t => !cleanIds.includes(t.id) && !trackIds.includes(t.id));
-      const currentPlayingTrack = prev[currentTrackIndex];
-      if (currentPlayingTrack && (cleanIds.includes(currentPlayingTrack.id) || trackIds.includes(currentPlayingTrack.id))) {
-        stopSyntheticOsc();
-        setIsPlaying(false);
-        if (audioRef.current) audioRef.current.pause();
+      const remaining = prev.filter(t => !cleanDeletedTracks.has(t.id) && !tombstones.tracks.has(t.id));
+      const cur = prev[currentTrackIndex];
+      if (cur && (cleanDeletedTracks.has(cur.id) || tombstones.tracks.has(cur.id))) {
         setCurrentTrackIndex(-1);
-      } else if (currentPlayingTrack) {
-        const newIdx = remaining.findIndex(t => t.id === currentPlayingTrack.id);
+      } else if (cur) {
+        const newIdx = remaining.findIndex(t => t.id === cur.id);
         setCurrentTrackIndex(newIdx);
       }
       return remaining;
@@ -2362,13 +2455,22 @@ function MainApp() {
 
   const deleteSelectedVideos = async (videoIds: string[]) => {
     if (!videoIds || videoIds.length === 0) return;
-    const cleanIds = videoIds.map(id => id.replace("local-db://", ""));
+
+    // Save to tombstone registry so it will NEVER be restored
+    saveDeletedTombstones([], videoIds);
+    const tombstones = getDeletedTombstones();
+    const cleanDeletedVideos = new Set<string>();
+    videoIds.forEach(id => {
+      cleanDeletedVideos.add(id);
+      cleanDeletedVideos.add(id.replace("local-db://", ""));
+      cleanDeletedVideos.add(`local-db://${id.replace("local-db://", "")}`);
+    });
 
     // 1. Optimistically update local state so the video vanishes immediately from UI
-    setFirestoreVideos(prev => prev.filter(v => !cleanIds.includes(v.id) && !videoIds.includes(v.id)));
+    setFirestoreVideos(prev => prev.filter(v => !cleanDeletedVideos.has(v.id) && !tombstones.videos.has(v.id)));
 
     // 2. Clear selected video if it's currently selected
-    if (selectedVideo && (cleanIds.includes(selectedVideo.id) || videoIds.includes(selectedVideo.id))) {
+    if (selectedVideo && (cleanDeletedVideos.has(selectedVideo.id) || tombstones.videos.has(selectedVideo.id) || (selectedVideo.url && cleanDeletedVideos.has(selectedVideo.url)))) {
       setSelectedVideo(null);
     }
 
@@ -2380,23 +2482,29 @@ function MainApp() {
         await deleteVideoBlob(cleanId);
         await deleteLocalVideo(rawId);
         await deleteVideoBlob(rawId);
-        console.log("Deleted local IndexedDB video successfully:", cleanId);
+        await deleteLocalVideo(`local-db://${cleanId}`);
+        await deleteVideoBlob(`local-db://${cleanId}`);
       } catch (err) {
-        console.error("Failed deleting local video:", cleanId, err);
+        console.warn("IndexedDB delete video error:", cleanId, err);
       }
 
       if (currentUser) {
         try {
           await deleteDoc(doc(db, "videos", cleanId));
-          console.log("Deleted remote Firestore video successfully:", cleanId);
         } catch (remErr) {
           console.warn("Firestore delete video warning:", cleanId, remErr);
+        }
+        if (cleanId !== rawId) {
+          try {
+            await deleteDoc(doc(db, "videos", rawId));
+          } catch {}
         }
       }
     }
 
     // 4. Re-sync media state
-    await refreshLocalMedia();
+    const { vids } = await refreshLocalMedia();
+    setFirestoreVideos(vids.filter(v => !cleanDeletedVideos.has(v.id) && !tombstones.videos.has(v.id)));
   };
 
   const handleEqValueChange = (bandIdx: number, newGainDb: number) => {     
@@ -3415,7 +3523,23 @@ function MainApp() {
         ref={videoScanInputRef}
         type="file"
         multiple
-        accept="video/*,.mp4,.webm,.avi,.mkv,.mov,.3gp,.m4v"
+        accept="*/*,video/*,.mp4,.webm,.avi,.mkv,.mov,.3gp,.m4v,.ts,.flv,.wmv"
+        className="hidden"
+        onChange={handleWebVideoScanChange}
+      />
+      <input
+        id="video-storage-browser"
+        type="file"
+        multiple
+        accept="*/*"
+        className="hidden"
+        onChange={handleWebVideoScanChange}
+      />
+      <input
+        id="video-folder-browser"
+        type="file"
+        {...({ webkitdirectory: "", directory: "" } as any)}
+        multiple
         className="hidden"
         onChange={handleWebVideoScanChange}
       />

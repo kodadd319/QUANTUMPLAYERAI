@@ -375,11 +375,23 @@ export const VideoView: React.FC<VideoViewProps> = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [deletedBuiltinVideoIds, setDeletedBuiltinVideoIds] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem("quantum_deleted_media_v1");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return parsed.videos || [];
+      }
+    } catch {}
+    return [];
+  });
 
   // Firestore sync effect for personal videos
   useEffect(() => {
     if (!currentUser) {
-      setUploadedVideos([]);
+      if (parentFirestoreVideos && parentFirestoreVideos.length > 0) {
+        setUploadedVideos(parentFirestoreVideos);
+      }
       return;
     }
     const videosQuery = query(collection(db, "videos"), where("uid", "==", currentUser.uid));
@@ -399,16 +411,14 @@ export const VideoView: React.FC<VideoViewProps> = ({
       });
       setUploadedVideos(list);
     }, (error) => {
-      console.error("Failed to fetch custom uploaded videos:", error);
-      try {
-        handleFirestoreError(error, OperationType.LIST, "videos");
-      } catch (wrappedErr) {
-        // Log to let developers and tools inspect, but don't crash app rendering completely if handled
+      console.warn("Notice: Firestore offline or video query notice, using local cache:", error);
+      if (parentFirestoreVideos && parentFirestoreVideos.length > 0) {
+        setUploadedVideos(parentFirestoreVideos);
       }
     });
 
     return () => unsubscribe();
-  }, [currentUser]);
+  }, [currentUser, parentFirestoreVideos]);
 
   // Sync with parent-passed props for Firebase integrations if available
   useEffect(() => {
@@ -451,8 +461,9 @@ export const VideoView: React.FC<VideoViewProps> = ({
 
   // Combined and filtered lists
   const allVideosCombined = useMemo(() => {
-    return [...BUILTIN_VIDEOS, ...uploadedVideos];
-  }, [uploadedVideos]);
+    const activeBuiltins = BUILTIN_VIDEOS.filter(v => !deletedBuiltinVideoIds.includes(v.id));
+    return [...activeBuiltins, ...uploadedVideos.filter(v => !deletedBuiltinVideoIds.includes(v.id))];
+  }, [uploadedVideos, deletedBuiltinVideoIds]);
 
   const filteredVideos = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -794,6 +805,13 @@ export const VideoView: React.FC<VideoViewProps> = ({
     setShowDeleteConfirm(true);
   };
 
+  const targetVideoToDelete = useMemo(() => {
+    if (pendingDeleteIds.length === 1) {
+      return allVideosCombined.find(v => v.id === pendingDeleteIds[0]) || null;
+    }
+    return null;
+  }, [pendingDeleteIds, allVideosCombined]);
+
   const confirmDelete = async () => {
     const idsToDelete = pendingDeleteIds.length > 0 ? pendingDeleteIds : selectedVideoIds;
     if (idsToDelete.length === 0) return;
@@ -801,6 +819,34 @@ export const VideoView: React.FC<VideoViewProps> = ({
     setPendingDeleteIds([]);
     setSelectedVideoIds(prev => prev.filter(id => !idsToDelete.includes(id)));
     setShowDeleteConfirm(false);
+
+    // Persist deleted video IDs in local tombstones
+    try {
+      const raw = localStorage.getItem("quantum_deleted_media_v1");
+      const parsed = raw ? JSON.parse(raw) : { tracks: [], videos: [] };
+      const nextVids = Array.from(new Set([...(parsed.videos || []), ...idsToDelete, ...idsToDelete.map(id => id.replace("local-db://", ""))]));
+      parsed.videos = nextVids;
+      localStorage.setItem("quantum_deleted_media_v1", JSON.stringify(parsed));
+    } catch {}
+
+    setDeletedBuiltinVideoIds(prev => Array.from(new Set([...prev, ...idsToDelete, ...idsToDelete.map(id => id.replace("local-db://", ""))])));
+
+    // Optimistically update uploadedVideos
+    setUploadedVideos(prev => prev.filter(v => !idsToDelete.includes(v.id) && !idsToDelete.includes(v.url) && !idsToDelete.includes(v.id.replace("local-db://", ""))));
+
+    // Clear active screening video if it was deleted
+    if (selectedVideo && (idsToDelete.includes(selectedVideo.id) || idsToDelete.includes(selectedVideo.url) || idsToDelete.includes(selectedVideo.id.replace("local-db://", "")))) {
+      if (videoRawRef.current) {
+        videoRawRef.current.pause();
+        videoRawRef.current.src = "";
+      }
+      setSelectedVideo(null);
+      setIsPlaying(false);
+      setProgress(0);
+      setCurrentTime(0);
+      setCustomVideoUrl(null);
+    }
+
     if (deleteSelectedVideos) {
       await deleteSelectedVideos(idsToDelete);
     } else {
@@ -1846,17 +1892,17 @@ export const VideoView: React.FC<VideoViewProps> = ({
                   <Trash2 className="w-6 h-6" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-white font-sans">Confirm Deletion</h3>
+                  <h3 className="text-lg font-bold text-white font-sans">Delete Video</h3>
                   <p className="text-xs text-slate-400">
-                    {(pendingDeleteIds.length > 0 ? pendingDeleteIds.length : selectedVideoIds.length) === 1 
-                      ? "Are you sure you want to delete this video?" 
-                      : `Are you sure you want to delete these ${pendingDeleteIds.length > 0 ? pendingDeleteIds.length : selectedVideoIds.length} videos?`}
+                    {targetVideoToDelete 
+                      ? `Are you sure you want to delete "${targetVideoToDelete.name}"?` 
+                      : (pendingDeleteIds.length > 1 ? `Are you sure you want to delete these ${pendingDeleteIds.length} videos?` : "Are you sure you want to delete this video?")}
                   </p>
                 </div>
               </div>
 
               <p className="text-xs text-slate-300 leading-relaxed bg-black/30 p-3 rounded-xl border border-white/5">
-                This item will be permanently removed from your videos list and local storage. This action cannot be undone.
+                This video will be permanently removed from your library and local storage. This action cannot be undone.
               </p>
 
               <div className="flex items-center justify-end gap-3 pt-2">

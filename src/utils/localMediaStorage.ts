@@ -58,6 +58,27 @@ export async function storeLocalTrack(track: LocalTrack): Promise<void> {
   });
 }
 
+export async function getLocalTrack(id: string): Promise<LocalTrack | null> {
+  try {
+    const db = await openMediaDB();
+    return new Promise<LocalTrack | null>((resolve, reject) => {
+      const transaction = db.transaction(TRACK_STORE, "readonly");
+      const store = transaction.objectStore(TRACK_STORE);
+      const request = store.get(id);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result || null);
+    });
+  } catch (err) {
+    console.error("IndexedDB getLocalTrack error:", err);
+    return null;
+  }
+}
+
+export async function getLocalTrackBlob(id: string): Promise<Blob | null> {
+  const track = await getLocalTrack(id);
+  return track?.blob || null;
+}
+
 export async function getLocalTracks(): Promise<LocalTrack[]> {
   try {
     const db = await openMediaDB();
